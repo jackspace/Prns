@@ -38,9 +38,9 @@ use personal_rns::routing::upstream_app_destinations::FixedUpstreamAppDestinatio
 use personal_rns::routing::warmth::FixedDepartedInterfaceTable;
 use personal_rns::storage::{DisplayedStorageLimits, StorageCapacity, StorageLayout};
 
-pub struct TechoStorage;
+pub struct Nrf52840Storage;
 
-impl TechoStorage {
+impl Nrf52840Storage {
     const TRACKED_DESTINATIONS: usize = 8;
     const UPSTREAM_APP_DESTINATIONS: usize = 2;
     const LINKS: usize = 2;
@@ -68,10 +68,10 @@ impl TechoStorage {
 }
 
 const _: () = assert!(
-    TechoStorage::MAX_COMPACTED_FLASH_JOURNAL_BYTES <= crate::hopspot::persistence::ARENA_BYTES
+    Nrf52840Storage::MAX_COMPACTED_FLASH_JOURNAL_BYTES <= crate::persistence::ARENA_BYTES
 );
 
-impl StorageLayout for TechoStorage {
+impl StorageLayout for Nrf52840Storage {
     const LIMITS: DisplayedStorageLimits = DisplayedStorageLimits {
         tracked_destinations: StorageCapacity::Fixed(Self::TRACKED_DESTINATIONS),
         destination_identities: StorageCapacity::Fixed(0),

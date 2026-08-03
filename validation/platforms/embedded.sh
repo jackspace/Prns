@@ -17,7 +17,7 @@ cargo build \
     --features "lora,bluetooth-auto,usb"
 (
     cd personal-hopspot/embedded/nrf52840
-    cargo build --release --locked
+    cargo build --release --locked -p hopspot-t-echo
 )
 
 echo "EMBEDDED_BUILD_GATE_OK"

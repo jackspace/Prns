@@ -8,20 +8,19 @@ use embassy_time::{Duration, Timer};
 
 use personal_hopspot_core::InputEvent;
 
-use super::node::Mtx;
+use crate::node::Mtx;
 
 const BUTTON_LONG_PRESS: Duration = Duration::from_millis(500);
 const BUTTON_DEBOUNCE: Duration = Duration::from_millis(25);
-const FRONTLIGHT_HOLD: Duration = Duration::from_secs(8);
 
-pub(super) static EVENTS: Channel<Mtx, InputEvent, 4> = Channel::new();
+pub(crate) static EVENTS: Channel<Mtx, InputEvent, 4> = Channel::new();
 static BUTTON_COUNT: AtomicU32 = AtomicU32::new(0);
-static FRONTLIGHT_WAKE: Signal<Mtx, ()> = Signal::new();
+static PANEL_LIGHT_WAKE: Signal<Mtx, ()> = Signal::new();
 
-pub(super) async fn drive_button(mut button: Input<'static>) -> ! {
+pub(crate) async fn drive_button(mut button: Input<'static>) -> ! {
     loop {
         button.wait_for_falling_edge().await;
-        FRONTLIGHT_WAKE.signal(());
+        PANEL_LIGHT_WAKE.signal(());
         match select(
             button.wait_for_rising_edge(),
             Timer::after(BUTTON_LONG_PRESS),
@@ -42,13 +41,13 @@ pub(super) async fn drive_button(mut button: Input<'static>) -> ! {
     }
 }
 
-pub(super) async fn drive_frontlight(mut frontlight: Output<'static>) -> ! {
+/// Hold the panel light lit for `hold` after any press. Each board passes its own hold: the
+/// constant is a policy about that board's panel, not about the button.
+pub(crate) async fn drive_panel_light(mut light: Output<'static>, hold: Duration) -> ! {
     loop {
-        FRONTLIGHT_WAKE.wait().await;
-        frontlight.set_high();
-        while let Either::First(()) =
-            select(FRONTLIGHT_WAKE.wait(), Timer::after(FRONTLIGHT_HOLD)).await
-        {}
-        frontlight.set_low();
+        PANEL_LIGHT_WAKE.wait().await;
+        light.set_high();
+        while let Either::First(()) = select(PANEL_LIGHT_WAKE.wait(), Timer::after(hold)).await {}
+        light.set_low();
     }
 }

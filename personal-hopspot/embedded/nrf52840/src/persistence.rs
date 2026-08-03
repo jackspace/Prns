@@ -18,12 +18,12 @@ pub const LAYOUT: FlashJournalLayout = FlashJournalLayout::new(
 
 const PENDING: usize = 8;
 
-pub type TechoPersistence =
+pub type Nrf52840Persistence =
     EmbeddedFlashPersistence<Flash, fn(EmbeddedPersistenceDiagnostic), PENDING>;
 
 static STATE_NOT_SAVED: AtomicBool = AtomicBool::new(false);
 
-pub fn new(flash: Flash) -> TechoPersistence {
+pub fn new(flash: Flash) -> Nrf52840Persistence {
     EmbeddedFlashPersistence::new(
         flash,
         LAYOUT,

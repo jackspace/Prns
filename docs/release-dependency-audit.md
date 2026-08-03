@@ -53,7 +53,7 @@ one of these reviewed boundaries:
 - `prns-ffi`: Objective-C, IOKit, WinRT, SetupAPI, and Windows COM handles.
 - `personal-hopspot-android`: JNI pointers and Java-owned buffers.
 - `personal-hopspot-ios`: the exported C ABI and caller-owned framebuffer.
-- `t-echo`: SoftDevice SVCs and the fixed L2CAP packet pool.
+- `personal-hopspot-nrf52840`: SoftDevice SVCs and the fixed L2CAP packet pool.
 - `personal-hopspot-esp32`: ROM calls, reserved-memory registration, and persistent RTC state.
 
 Each exception denies `unsafe_op_in_unsafe_fn` and undocumented unsafe blocks. The deterministic

@@ -205,7 +205,7 @@ mod reticulum_service {
     use super::GattValue;
 
     #[nrf_softdevice::gatt_service(uuid = "37145b00-442d-4a94-917f-8f42c5da28e3")]
-    pub(in crate::hopspot) struct ReticulumService {
+    pub(crate) struct ReticulumService {
         #[characteristic(uuid = "37145b00-442d-4a94-917f-8f42c5da28e4", read, notify)]
         pub(super) columba_tx: GattValue,
         #[characteristic(

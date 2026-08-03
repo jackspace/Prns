@@ -16,13 +16,12 @@ use personal_rns::runtime::{
 };
 use personal_rns::storage::{StorageCapacity, StorageLayout};
 
-use super::bluetooth_auto;
+use crate::bluetooth_auto;
 
 pub(super) const LANE_COUNT: usize = 3;
 pub(super) const LANE_DEPTH: usize = 1;
 const LORA_OUTBOUND_DEPTH: usize = 1;
 const INTERFACE_CAPACITY: usize = 2 + bluetooth_auto::MEMBERS;
-pub(super) const USB_INTERFACE_ID: InterfaceId = InterfaceId::new(*b"techousb");
 pub(super) const NOTIFY_CAP: usize = minimum_manifold_notification_capacity(LANE_COUNT, LANE_DEPTH);
 const COMMANDS_CAP: usize = 2;
 pub(super) const LIFECYCLE_CAP: usize = bluetooth_auto::MEMBERS;
@@ -36,11 +35,8 @@ const PACKET_PHY_RETENTION_CAPACITY: usize =
 const PACKET_PHY_INDEX_BUCKETS: usize =
     personal_rns::routing::dedup::dedup_index_buckets(PACKET_PHY_RETENTION_CAPACITY);
 
-pub(super) const ANNOUNCE_APP_DATA: &[u8] = b"\x92\xc4\x17Personal Hopspot T-Echo\xc0";
-pub(super) const NODE_ANNOUNCE_APP_DATA: &[u8] = b"Personal Hopspot T-Echo";
-
 pub(super) type Mtx = CriticalSectionRawMutex;
-type EngineStorageType = crate::storage::TechoStorage;
+type EngineStorageType = crate::storage::Nrf52840Storage;
 type InterfaceStore = EmbassyInterfaceStore<
     Mtx,
     INTERFACE_STORE_CAP,

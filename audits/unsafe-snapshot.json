@@ -8807,6 +8807,21 @@
     },
     {
       "graphs": {
+        "nrf52840": []
+      },
+      "name": "hopspot-t-echo",
+      "source": "personal-hopspot/embedded/nrf52840/boards/t-echo",
+      "unsafe": {
+        "blocks": 0,
+        "externs": 0,
+        "functions": 0,
+        "impls": 0,
+        "tokens": 0
+      },
+      "version": "0.1.0"
+    },
+    {
+      "graphs": {
         "esp32-c6": []
       },
       "name": "hopspot-xiao-esp32-c6",
@@ -13913,6 +13928,21 @@
         "functions": 0,
         "impls": 0,
         "tokens": 15
+      },
+      "version": "0.1.0"
+    },
+    {
+      "graphs": {
+        "nrf52840": []
+      },
+      "name": "personal-hopspot-nrf52840",
+      "source": "personal-hopspot/embedded/nrf52840",
+      "unsafe": {
+        "blocks": 4,
+        "externs": 0,
+        "functions": 1,
+        "impls": 1,
+        "tokens": 6
       },
       "version": "0.1.0"
     },
@@ -19282,21 +19312,6 @@
     },
     {
       "graphs": {
-        "nrf52840": []
-      },
-      "name": "t-echo",
-      "source": "personal-hopspot/embedded/nrf52840",
-      "unsafe": {
-        "blocks": 4,
-        "externs": 0,
-        "functions": 1,
-        "impls": 1,
-        "tokens": 6
-      },
-      "version": "0.1.0"
-    },
-    {
-      "graphs": {
         "daemon-linux": [
           "default",
           "getrandom"
@@ -23374,11 +23389,11 @@
     "personal-hopspot-android",
     "personal-hopspot-esp32",
     "personal-hopspot-ios",
+    "personal-hopspot-nrf52840",
     "prns-core",
     "prns-ffi",
     "prns-host-c",
     "prns-runtime",
-    "prns-runtime-embassy",
-    "t-echo"
+    "prns-runtime-embassy"
   ]
 }

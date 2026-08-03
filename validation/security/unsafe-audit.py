@@ -74,7 +74,7 @@ UNSAFE_EXCEPTIONS = {
     "prns-host-c",
     "personal-hopspot-android",
     "personal-hopspot-ios",
-    "t-echo",
+    "personal-hopspot-nrf52840",
     "personal-hopspot-esp32",
 }
 UNDOCUMENTED_UNSAFE_POLICY_EXCEPTIONS = {"prns-host-c"}
