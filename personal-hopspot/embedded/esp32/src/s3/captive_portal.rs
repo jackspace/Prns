@@ -437,7 +437,10 @@ async fn serve_site_connection<'a>(
     request_buffer: &'a mut [u8],
 ) -> Result<HttpResponseAttempt<'a>, ()> {
     let len = read_http_request(socket, request_buffer).await?;
-    let request = core::str::from_utf8(&request_buffer[..len]).map_err(|_| ())?;
+    // A POST body can be binary and can begin inside the same read as the headers, so only the
+    // header region is decoded as UTF-8; the remainder is handed to the body reader untouched.
+    let header_len = http_body_start(&request_buffer[..len]).unwrap_or(len);
+    let request = core::str::from_utf8(&request_buffer[..header_len]).map_err(|_| ())?;
     let Some(line) = request.lines().next() else {
         return Err(());
     };
@@ -527,6 +530,19 @@ async fn read_http_request(
 fn http_headers_complete(bytes: &[u8]) -> bool {
     bytes.windows(4).any(|window| window == b"\r\n\r\n")
         || bytes.windows(2).any(|window| window == b"\n\n")
+}
+
+/// Index of the first body byte, one past the header terminator. Headers always precede the body,
+/// so the first terminator found is the real one even when a binary body contains the same bytes.
+#[cfg(feature = "wifi-auto")]
+fn http_body_start(bytes: &[u8]) -> Option<usize> {
+    if let Some(at) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+        return Some(at + 4);
+    }
+    bytes
+        .windows(2)
+        .position(|window| window == b"\n\n")
+        .map(|at| at + 2)
 }
 
 #[cfg(feature = "wifi-auto")]
@@ -624,7 +640,7 @@ async fn send_site_response(
 }
 
 #[cfg(feature = "wifi-auto")]
-async fn tcp_write_all(socket: &mut TcpSocket<'static>, mut bytes: &[u8]) -> Result<(), ()> {
+pub(super) async fn tcp_write_all(socket: &mut TcpSocket<'static>, mut bytes: &[u8]) -> Result<(), ()> {
     while !bytes.is_empty() {
         let written = socket.write(bytes).await.map_err(|_| ())?;
         if written == 0 {
