@@ -121,6 +121,15 @@ the release gates. Related and worth knowing early: the T114's Board-ID is exact
 with no revision suffix, so the flasher's revision-shape rule will need an exact-match allowance
 when the board is cataloged.
 
+One fix from review, called out because the trap is structural. `Spim::new` takes its pins as
+sck, miso, mosi, in that order. The T-Echo's deferred-pin fields were named mosi-then-miso but
+passed positionally, so its pins landed in the correct slots and the names were the lie; the
+T114 board named its fields truthfully from the schematic and copied the T-Echo call's visual
+order, which swapped the radio's MISO and MOSI on the bus. The T-Echo fields are now named for
+the SPIM role each pin fills, with every pin in the same slot as before, and both boards' call
+sites read in the constructor's parameter order, so the next board copied from either inherits
+the correct shape.
+
 One warning that belongs in every T114 document: never chip-erase this board. UICR holds the
 bootloader start pointer and the reset-pin selection, and a chip erase removes the reset button
 and the bootloader in one stroke, recoverable only over SWD.
