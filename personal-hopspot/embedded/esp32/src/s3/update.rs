@@ -262,6 +262,10 @@ async fn install_image(
             .write(received as u32, &sector[..filled])
             .map_err(UpdateError::Slots)?;
         received += filled;
+        // The erase and write above ran to completion with the executor parked. Hand the network
+        // stack a turn before asking for the next sector, or the receive window drains and never
+        // refills and the transfer starves itself.
+        yield_now().await;
         if received % UPDATE_PROGRESS_LOG_BYTES == 0 {
             log::info!(
                 "update: {received}/{expected} bytes into {}",
