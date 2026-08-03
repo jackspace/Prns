@@ -59,6 +59,12 @@ pub(super) fn build_tcp(
     Some((tcp, status, id))
 }
 
+/// Portal servers bound to the station link when the SoftAP is off. Two is enough for a browser's
+/// parallel fetches without taking sockets or heap the AP path expects to have; the task pool holds
+/// four and the two paths are mutually exclusive.
+#[cfg(feature = "wifi-auto")]
+const STATION_HTTP_SERVERS: usize = 2;
+
 #[cfg(feature = "wifi-auto")]
 pub(super) fn build_wifi(
     spawner: &Spawner,
@@ -144,6 +150,15 @@ pub(super) fn build_wifi(
             wifi_connect_task(controller, wifi_status, station_credentials, ap_enabled)
                 .expect("wifi connect task fits"),
         );
+        // Enabling the SoftAP is an OLED menu action, so on a screenless board the portal can never
+        // be raised, and the update endpoint would be unreachable on exactly the nodes that most
+        // need updating without a cable. Serve the same routes over the station link when the
+        // SoftAP is not the active mode; the AP path keeps all four of its own servers.
+        if !ap_enabled {
+            for _ in 0..STATION_HTTP_SERVERS {
+                spawner.spawn(http_server_task(stack).expect("station http server task fits"));
+            }
+        }
         Some(AutoWifiSegment {
             stack,
             discovery,
@@ -356,7 +371,14 @@ async fn network_ready_task(stack: Stack<'static>) -> ! {
             Timer::after(Duration::from_millis(100)).await;
         }
         boot_stage(BootPhase::NetworkReady);
-        log::info!("wifi: IPv4 network configuration ready");
+        match stack.config_v4() {
+            // A headless node has no other way to tell you where to reach it.
+            Some(config) => log::info!(
+                "wifi: IPv4 network configuration ready address={}",
+                config.address
+            ),
+            None => log::info!("wifi: IPv4 network configuration ready"),
+        }
         while stack.is_link_up() && stack.config_v4().is_some() {
             Timer::after(WIFI_LINK_CHECK_INTERVAL).await;
         }
