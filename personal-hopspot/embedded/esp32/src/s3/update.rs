@@ -164,12 +164,18 @@ pub(super) async fn serve(
                 }
             }
         }
-        Route::InstallImage => match install_image(socket, buffered, framing.content_length).await {
-            Ok(installed) => finish_and_reboot(socket, installed).await,
-            Err(error) => {
-                log::warn!("update: image refused: {error}");
-                send_error(socket, &error).await
-            }
+        // The guard is taken here rather than inside install_image so it stays held across the
+        // success response and the reboot: releasing it earlier would let a second upload target
+        // the slot this firmware is executing from during the shutdown window.
+        Route::InstallImage => match UpdateGuard::acquire() {
+            Ok(_hold) => match install_image(socket, buffered, framing.content_length).await {
+                Ok(installed) => finish_and_reboot(socket, installed).await,
+                Err(error) => {
+                    log::warn!("update: image refused: {error}");
+                    send_error(socket, &error).await
+                }
+            },
+            Err(error) => send_error(socket, &error).await,
         },
     }
 }
@@ -198,7 +204,6 @@ async fn install_image(
     let Some(staged) = STAGED_SIGNATURE.lock(|staged| *staged.borrow()) else {
         return Err(UpdateError::SignatureNotStaged);
     };
-    let _hold = UpdateGuard::acquire()?;
 
     let mut merge = alloc::vec![0u8; FLASH_SECTOR_LEN];
     let mut storage = RmwNorFlashStorage::new(
