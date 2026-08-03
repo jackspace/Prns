@@ -495,9 +495,20 @@ pub(super) enum SlotHealth {
 pub(super) async fn ota_health_task() {
     loop {
         Timer::after(Duration::from_secs(1)).await;
-        if CORE_ONE_HEARTBEAT.load(Ordering::Relaxed) >= OTA_VALIDATE_HEARTBEATS {
-            break;
+        if CORE_ONE_HEARTBEAT.load(Ordering::Relaxed) < OTA_VALIDATE_HEARTBEATS {
+            continue;
         }
+        // An install owns otadata from its first byte to the reset that follows success. Firing
+        // inside its post-activation window would mark the freshly selected slot valid before
+        // that image has ever booted, erasing the rollback evidence, so the install is waited
+        // out: success ends in a reset and this task with it, failure releases the guard and the
+        // next tick proceeds against the slot that is still running. The write below cannot race
+        // the check because mark_running_slot_valid never yields and installs only start at
+        // await points of this executor.
+        if UPDATE_IN_PROGRESS.load(Ordering::Acquire) {
+            continue;
+        }
+        break;
     }
     match mark_running_slot_valid() {
         Ok(SlotHealth::NoOtaSlots) => {
