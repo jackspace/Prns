@@ -72,6 +72,9 @@ pub(crate) enum CommandMode {
             help = "One outbound Reticulum TCP target as IPv4, hostname, or URL; port defaults to 4242."
         )]
         tcp_client: Option<String>,
+        /// Node display name written with `--wifi configure`; the firmware derives one when absent.
+        #[arg(long, value_name = "NAME")]
+        node_name: Option<String>,
         /// Use only a previously verified local cache.
         #[arg(long)]
         offline: bool,

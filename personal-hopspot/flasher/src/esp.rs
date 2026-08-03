@@ -164,8 +164,13 @@ fn sparse_plan(
     target: &PreparedEspTarget,
     provisioning: &ProvisioningAction,
 ) -> Result<Vec<SparsePart>, AppError> {
-    if matches!(provisioning, ProvisioningAction::ConfigureWithTcp { .. })
-        && !target.supports_tcp_client_provisioning()
+    if matches!(
+        provisioning,
+        ProvisioningAction::Configure {
+            tcp_client: Some(_),
+            ..
+        }
+    ) && !target.supports_tcp_client_provisioning()
     {
         return Err(AppError::configuration(
             "this signed firmware release does not support TCP client provisioning",

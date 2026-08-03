@@ -22,6 +22,13 @@ pub const CONFIG_TCP_CLIENT_PORT_OFFSET: usize = CONFIG_TCP_CLIENT_HOST_LENGTH_O
 pub const CONFIG_TCP_CLIENT_TARGET_OFFSET: usize = CONFIG_TCP_CLIENT_PORT_OFFSET + 2;
 pub const CONFIG_TCP_CLIENT_HOSTNAME_MAX_BYTES: usize = 253;
 pub const DEFAULT_TCP_CLIENT_PORT: u16 = 4242;
+/// Optional node display name, appended after the TCP client region so v1 slots stay readable by
+/// firmware that predates it. Length 0 (or the erased 0xFF) means no override: the firmware
+/// derives a name from its destination hash.
+pub const CONFIG_NODE_NAME_LENGTH_OFFSET: usize =
+    CONFIG_TCP_CLIENT_TARGET_OFFSET + CONFIG_TCP_CLIENT_HOSTNAME_MAX_BYTES;
+pub const CONFIG_NODE_NAME_OFFSET: usize = CONFIG_NODE_NAME_LENGTH_OFFSET + 1;
+pub const CONFIG_NODE_NAME_MAX_BYTES: usize = 32;
 
 /// User-selected provisioning behavior.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,11 +37,13 @@ pub enum ProvisioningAction {
     /// Leave the flash slot untouched.
     #[default]
     Preserve,
-    /// Write supplied credentials.
-    Configure(WifiCredentials),
-    ConfigureWithTcp {
+    /// Write supplied credentials, plus whatever optional extras ride in the same slot.
+    Configure {
         wifi: WifiCredentials,
-        tcp_client: TcpClientEndpoint,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tcp_client: Option<TcpClientEndpoint>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node_name: Option<String>,
     },
     /// Explicitly write an empty configuration image.
     Clear,
@@ -189,6 +198,23 @@ impl WifiCredentials {
     }
 }
 
+/// Validate a node display name for the hopcfg override field.
+pub fn validate_node_name(name: &str) -> Result<(), ProvisioningError> {
+    if name.is_empty() {
+        return Err(ProvisioningError::EmptyNodeName);
+    }
+    if name.len() > CONFIG_NODE_NAME_MAX_BYTES {
+        return Err(ProvisioningError::NodeNameTooLong {
+            actual: name.len(),
+            maximum: CONFIG_NODE_NAME_MAX_BYTES,
+        });
+    }
+    if name.chars().any(char::is_control) {
+        return Err(ProvisioningError::InvalidNodeName);
+    }
+    Ok(())
+}
+
 /// Provisioning image failure.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ProvisioningError {
@@ -223,28 +249,40 @@ pub enum ProvisioningError {
     InvalidTcpTarget,
     #[error("embedded TCP client provisioning currently accepts IPv4 and DNS hostnames, not IPv6 literals")]
     UnsupportedTcpIpv6,
+    #[error("node name cannot be empty")]
+    EmptyNodeName,
+    #[error("node name is {actual} bytes; maximum is {maximum}")]
+    NodeNameTooLong {
+        /// Encoded length.
+        actual: usize,
+        /// Maximum encoded length.
+        maximum: usize,
+    },
+    #[error("node name cannot contain control characters")]
+    InvalidNodeName,
 }
 
 /// Build a configuration-slot image, or `None` when preserving the slot.
 pub fn provisioning_image(
     action: &ProvisioningAction,
 ) -> Result<Option<Vec<u8>>, ProvisioningError> {
-    if matches!(action, ProvisioningAction::Preserve) {
-        return Ok(None);
-    }
-
-    let (credentials, tcp_client) = match action {
-        ProvisioningAction::Configure(credentials) => {
-            credentials.validate()?;
-            (Some(credentials), None)
-        }
-        ProvisioningAction::ConfigureWithTcp { wifi, tcp_client } => {
-            wifi.validate()?;
-            tcp_client.validate()?;
-            (Some(wifi), Some(tcp_client))
-        }
-        ProvisioningAction::Clear => (None, None),
+    let (credentials, tcp_client, node_name) = match action {
         ProvisioningAction::Preserve => return Ok(None),
+        ProvisioningAction::Configure {
+            wifi,
+            tcp_client,
+            node_name,
+        } => {
+            wifi.validate()?;
+            if let Some(endpoint) = tcp_client {
+                endpoint.validate()?;
+            }
+            if let Some(name) = node_name {
+                validate_node_name(name)?;
+            }
+            (Some(wifi), tcp_client.as_ref(), node_name.as_deref())
+        }
+        ProvisioningAction::Clear => (None, None, None),
     };
 
     let mut bytes = vec![0xff; CONFIG_SIZE];
@@ -284,6 +322,14 @@ pub fn provisioning_image(
             }
         }
     }
+    match node_name {
+        Some(name) => {
+            bytes[CONFIG_NODE_NAME_LENGTH_OFFSET] = name.len() as u8;
+            bytes[CONFIG_NODE_NAME_OFFSET..CONFIG_NODE_NAME_OFFSET + name.len()]
+                .copy_from_slice(name.as_bytes());
+        }
+        None => bytes[CONFIG_NODE_NAME_LENGTH_OFFSET] = 0,
+    }
     Ok(Some(bytes))
 }
 
@@ -306,6 +352,7 @@ mod tests {
         assert_eq!(image[8], CONFIG_VERSION);
         assert_eq!((image[10], image[11]), (0, 0));
         assert_eq!(image[CONFIG_TCP_CLIENT_KIND_OFFSET], 0);
+        assert_eq!(image[CONFIG_NODE_NAME_LENGTH_OFFSET], 0);
         Ok(())
     }
 
@@ -323,15 +370,16 @@ mod tests {
 
     #[test]
     fn tcp_client_is_encoded_after_legacy_wifi_fields() -> Result<(), ProvisioningError> {
-        let image = provisioning_image(&ProvisioningAction::ConfigureWithTcp {
+        let image = provisioning_image(&ProvisioningAction::Configure {
             wifi: WifiCredentials {
                 ssid: "mesh".to_string(),
                 password: "private".to_string(),
             },
-            tcp_client: TcpClientEndpoint {
+            tcp_client: Some(TcpClientEndpoint {
                 host: TcpClientHost::Ipv4(Ipv4Addr::new(192, 0, 2, 10)),
                 port: 4242,
-            },
+            }),
+            node_name: None,
         })?
         .ok_or(ProvisioningError::EmptySsid)?;
         assert_eq!(image[CONFIG_TCP_CLIENT_KIND_OFFSET], 1);
@@ -377,12 +425,13 @@ mod tests {
             port: 4242,
         };
         endpoint.validate()?;
-        let image = provisioning_image(&ProvisioningAction::ConfigureWithTcp {
+        let image = provisioning_image(&ProvisioningAction::Configure {
             wifi: WifiCredentials {
                 ssid: "mesh".to_string(),
                 password: String::new(),
             },
-            tcp_client: endpoint,
+            tcp_client: Some(endpoint),
+            node_name: None,
         })?
         .ok_or(ProvisioningError::EmptySsid)?;
         assert_eq!(image[CONFIG_TCP_CLIENT_KIND_OFFSET], 2);
@@ -402,6 +451,58 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn node_name_layout_is_pinned_after_the_tcp_client_region() {
+        assert_eq!(CONFIG_NODE_NAME_LENGTH_OFFSET, 368);
+        assert_eq!(CONFIG_NODE_NAME_OFFSET, 369);
+        assert!(CONFIG_NODE_NAME_OFFSET + CONFIG_NODE_NAME_MAX_BYTES <= CONFIG_SIZE);
+    }
+
+    #[test]
+    fn node_name_is_encoded_and_absent_name_writes_zero_length() -> Result<(), ProvisioningError> {
+        let wifi = WifiCredentials {
+            ssid: "mesh".to_string(),
+            password: String::new(),
+        };
+        let named = provisioning_image(&ProvisioningAction::Configure {
+            wifi: wifi.clone(),
+            tcp_client: None,
+            node_name: Some("Lighthouse".to_string()),
+        })?
+        .ok_or(ProvisioningError::EmptySsid)?;
+        assert_eq!(named[CONFIG_NODE_NAME_LENGTH_OFFSET], 10);
+        assert_eq!(
+            &named[CONFIG_NODE_NAME_OFFSET..CONFIG_NODE_NAME_OFFSET + 10],
+            b"Lighthouse"
+        );
+
+        let unnamed = provisioning_image(&ProvisioningAction::Configure {
+            wifi,
+            tcp_client: None,
+            node_name: None,
+        })?
+        .ok_or(ProvisioningError::EmptySsid)?;
+        assert_eq!(unnamed[CONFIG_NODE_NAME_LENGTH_OFFSET], 0);
+        Ok(())
+    }
+
+    #[test]
+    fn node_names_are_validated_in_bytes_without_control_characters() {
+        assert_eq!(
+            validate_node_name(""),
+            Err(ProvisioningError::EmptyNodeName)
+        );
+        assert!(matches!(
+            validate_node_name(&"é".repeat(17)),
+            Err(ProvisioningError::NodeNameTooLong { actual: 34, .. })
+        ));
+        assert_eq!(
+            validate_node_name("two\nlines"),
+            Err(ProvisioningError::InvalidNodeName)
+        );
+        assert_eq!(validate_node_name("Faro Lakeside"), Ok(()));
     }
 
     #[test]

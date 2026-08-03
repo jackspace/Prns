@@ -163,6 +163,7 @@ fn run(cli: Cli, reporter: Reporter) -> Result<(), AppError> {
             wifi_password_stdin,
             wifi_from_env,
             tcp_client,
+            node_name,
             offline,
             yes,
             monitor,
@@ -186,6 +187,7 @@ fn run(cli: Cli, reporter: Reporter) -> Result<(), AppError> {
                     password_stdin: wifi_password_stdin,
                     from_env: wifi_from_env,
                     tcp_client,
+                    node_name,
                     interactive,
                 },
             )?;
@@ -345,6 +347,7 @@ fn guided(catalog: &BoardCatalog, reporter: Reporter) -> Result<(), AppError> {
             password_stdin: false,
             from_env: false,
             tcp_client: None,
+            node_name: None,
             interactive: true,
         },
     )?;

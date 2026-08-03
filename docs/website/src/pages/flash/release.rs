@@ -419,16 +419,13 @@ fn bridge_provisioning(
         (WifiAction::Preserve | WifiAction::Clear, Some(_)) => {
             return Err("TCP client configuration requires configured Wi-Fi.".to_string())
         }
-        (WifiAction::Configure, None) => ProvisioningAction::Configure(WifiCredentials {
-            ssid: ssid.clone(),
-            password: password.clone(),
-        }),
-        (WifiAction::Configure, Some(tcp_client)) => ProvisioningAction::ConfigureWithTcp {
+        (WifiAction::Configure, _) => ProvisioningAction::Configure {
             wifi: WifiCredentials {
                 ssid: ssid.clone(),
                 password: password.clone(),
             },
             tcp_client: tcp_client.clone(),
+            node_name: None,
         },
     };
     provisioning_image(&provisioning_action).map_err(|error| error.to_string())?;

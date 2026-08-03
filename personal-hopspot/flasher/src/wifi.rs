@@ -1,7 +1,9 @@
 use std::env;
 use std::io::{self, IsTerminal, Read};
 
-use prns_flash_manifest::{ProvisioningAction, TcpClientEndpoint, WifiCredentials};
+use prns_flash_manifest::{
+    validate_node_name, ProvisioningAction, TcpClientEndpoint, WifiCredentials,
+};
 
 use crate::cli::WifiMode;
 use crate::error::AppError;
@@ -13,6 +15,7 @@ pub(crate) struct WifiOptions {
     pub(crate) password_stdin: bool,
     pub(crate) from_env: bool,
     pub(crate) tcp_client: Option<String>,
+    pub(crate) node_name: Option<String>,
     pub(crate) interactive: bool,
 }
 
@@ -27,6 +30,7 @@ pub(crate) fn resolve(
             || options.password_stdin
             || options.from_env
             || options.tcp_client.is_some()
+            || options.node_name.is_some()
         {
             return Err(AppError::configuration(
                 "this board does not support Wi-Fi provisioning",
@@ -118,14 +122,15 @@ pub(crate) fn resolve(
                         .map_err(|error| AppError::configuration(error.to_string()))
                 })
                 .transpose()?;
-            if let Some(tcp_client) = tcp_client {
-                Ok(ProvisioningAction::ConfigureWithTcp {
-                    wifi: credentials,
-                    tcp_client,
-                })
-            } else {
-                Ok(ProvisioningAction::Configure(credentials))
+            if let Some(name) = options.node_name.as_deref() {
+                validate_node_name(name)
+                    .map_err(|error| AppError::configuration(error.to_string()))?;
             }
+            Ok(ProvisioningAction::Configure {
+                wifi: credentials,
+                tcp_client,
+                node_name: options.node_name,
+            })
         }
     }
 }
@@ -135,9 +140,10 @@ fn reject_unused_inputs(options: &WifiOptions) -> Result<(), AppError> {
         || options.password_stdin
         || options.from_env
         || options.tcp_client.is_some()
+        || options.node_name.is_some()
     {
         return Err(AppError::configuration(
-            "Wi-Fi and TCP client inputs require `--wifi configure`",
+            "Wi-Fi, TCP client, and node name inputs require `--wifi configure`",
         ));
     }
     Ok(())
@@ -195,6 +201,7 @@ mod tests {
                 password_stdin: false,
                 from_env: false,
                 tcp_client: None,
+                node_name: None,
                 interactive: false,
             },
         );
@@ -246,6 +253,7 @@ mod tests {
                 password_stdin: false,
                 from_env: false,
                 tcp_client: Some("192.0.2.10:4242".to_string()),
+                node_name: None,
                 interactive: false,
             },
         );
