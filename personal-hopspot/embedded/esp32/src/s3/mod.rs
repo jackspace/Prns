@@ -267,6 +267,8 @@ mod captive_portal;
 mod configuration;
 mod connectivity;
 mod display;
+#[cfg(feature = "wifi-auto")]
+mod update;
 
 #[cfg(feature = "wifi-auto")]
 use captive_portal::ap_ssid;
