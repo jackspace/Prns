@@ -855,6 +855,8 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     boot_stage(BootPhase::BluetoothReady);
 
     spawner.spawn(watchdog_task(rtc.rwdt).expect("watchdog task fits"));
+    #[cfg(feature = "wifi-auto")]
+    spawner.spawn(super::update::ota_health_task().expect("ota health task fits"));
 
     #[cfg(all(feature = "bluetooth-auto", not(feature = "wifi-auto")))]
     {

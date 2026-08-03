@@ -1,5 +1,7 @@
 #[cfg(feature = "wifi-auto")]
 use super::connectivity::net_task;
+#[cfg(feature = "wifi-auto")]
+use super::update;
 use super::*;
 
 #[cfg(feature = "wifi-auto")]
@@ -448,6 +450,31 @@ async fn serve_site_connection<'a>(
     let method = parts.next().unwrap_or("");
     let raw_path = parts.next().unwrap_or("/");
     let is_head = method == "HEAD";
+    let path = normalize_http_path(raw_path);
+    if let Some(route) = update::route(method, path) {
+        let framing = update::BodyFraming {
+            body_start: header_len,
+            buffered_len: len,
+            content_length: request_content_length(request),
+        };
+        // Name the route from the table rather than from the request line: `serve` needs
+        // `request_buffer` mutably to stream the body, so the borrow behind `method` and
+        // `raw_path` has to end before the call rather than outlive it in the attempt.
+        let (route_method, route_path) = match route {
+            update::Route::Page => ("GET", "/update"),
+            update::Route::Status => ("GET", "/update/status"),
+            update::Route::StageSignature => ("POST", "/update/signature"),
+            update::Route::InstallImage => ("POST", "/update/image"),
+        };
+        let written = update::serve(socket, request_buffer, framing, route)
+            .await
+            .is_ok();
+        return Ok(HttpResponseAttempt {
+            method: route_method,
+            path: route_path,
+            written,
+        });
+    }
     let response = if method != "GET" && !is_head {
         send_site_response(
             socket,
@@ -459,35 +486,33 @@ async fn serve_site_connection<'a>(
             },
         )
         .await
+    } else if path == "/captive-portal/api" {
+        send_captive_portal_api(socket, is_head).await
+    } else if is_captive_probe_path(path) {
+        send_captive_portal_redirect(socket, is_head).await
+    } else if path == "/index.html" {
+        send_site_response(
+            socket,
+            SiteResponse {
+                status: "200 OK",
+                content_type: "text/html; charset=utf-8",
+                body: CAPTIVE_PORTAL_PAGE,
+                head_only: is_head,
+            },
+        )
+        .await
     } else {
-        let path = normalize_http_path(raw_path);
-        if path == "/captive-portal/api" {
-            send_captive_portal_api(socket, is_head).await
-        } else if is_captive_probe_path(path) {
-            send_captive_portal_redirect(socket, is_head).await
-        } else if path == "/index.html" {
-            send_site_response(
-                socket,
-                SiteResponse {
-                    status: "200 OK",
-                    content_type: "text/html; charset=utf-8",
-                    body: CAPTIVE_PORTAL_PAGE,
-                    head_only: is_head,
-                },
-            )
-            .await
-        } else {
-            send_site_response(
-                socket,
-                SiteResponse {
-                    status: "404 Not Found",
-                    content_type: "text/plain; charset=utf-8",
-                    body: b"not found\n",
-                    head_only: is_head,
-                },
-            )
-            .await
-        }
+        send_site_response(
+            socket,
+            SiteResponse {
+                status: "404 Not Found",
+                content_type: "text/plain; charset=utf-8",
+                body: b"not found\n",
+                head_only: is_head,
+            },
+        )
+        .await
+    };
     };
     Ok(HttpResponseAttempt {
         method,
@@ -543,6 +568,17 @@ fn http_body_start(bytes: &[u8]) -> Option<usize> {
         .windows(2)
         .position(|window| window == b"\n\n")
         .map(|at| at + 2)
+}
+
+#[cfg(feature = "wifi-auto")]
+fn request_content_length(request: &str) -> Option<usize> {
+    request.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if !name.trim().eq_ignore_ascii_case("content-length") {
+            return None;
+        }
+        value.trim().parse().ok()
+    })
 }
 
 #[cfg(feature = "wifi-auto")]
