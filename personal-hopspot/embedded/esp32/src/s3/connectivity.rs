@@ -110,6 +110,12 @@ pub(super) fn build_tcp(
     Some((tcp, status, id))
 }
 
+/// Portal servers bound to the station link when the SoftAP is off. Two is enough for a browser's
+/// parallel fetches without taking sockets or heap the AP path expects to have; the task pool holds
+/// four and the two paths are mutually exclusive.
+#[cfg(feature = "wifi-auto")]
+const STATION_HTTP_SERVERS: usize = 2;
+
 #[cfg(feature = "wifi-auto")]
 pub(super) fn build_wifi(
     spawner: &Spawner,
@@ -185,6 +191,15 @@ pub(super) fn build_wifi(
             wifi_connect_task(controller, wifi_status, station_credentials, ap_enabled)
                 .expect("wifi connect task fits"),
         );
+        // Enabling the SoftAP is an OLED menu action, so on a screenless board the portal can never
+        // be raised, and the update endpoint would be unreachable on exactly the nodes that most
+        // need updating without a cable. Serve the same routes over the station link when the
+        // SoftAP is not the active mode; the AP path keeps all four of its own servers.
+        if !ap_enabled {
+            for _ in 0..STATION_HTTP_SERVERS {
+                spawner.spawn(http_server_task(stack).expect("station http server task fits"));
+            }
+        }
         Some(AutoWifiSegment {
             stack,
             discovery,
