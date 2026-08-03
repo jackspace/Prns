@@ -86,7 +86,7 @@ mod tests {
 
     fn hash() -> DestinationHash {
         DestinationHash::new([
-            0xa2, 0x33, 0x5c, 0x1f, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
+            0xfe, 0xed, 0x5c, 0x1f, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
             0xaa, 0xff,
         ])
     }
@@ -95,7 +95,7 @@ mod tests {
     fn derived_name_is_base_plus_first_four_hash_hex_chars() {
         assert_eq!(
             resolve_node_name(None, "Hopspot", &hash()).as_str(),
-            "Hopspot-a233"
+            "Hopspot-feed"
         );
     }
 
@@ -107,7 +107,7 @@ mod tests {
         );
         assert_eq!(
             resolve_node_name(Some(""), "Hopspot", &hash()).as_str(),
-            "Hopspot-a233"
+            "Hopspot-feed"
         );
     }
 
@@ -125,6 +125,6 @@ mod tests {
     fn destination_hex_spells_every_byte() {
         let hex = destination_hex(&hash());
         assert_eq!(hex.len(), DESTINATION_HEX_CHARS);
-        assert_eq!(hex.as_str(), "a2335c1f00112233445566778899aaff");
+        assert_eq!(hex.as_str(), "feed5c1f00112233445566778899aaff");
     }
 }

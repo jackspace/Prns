@@ -160,8 +160,8 @@ fn render_with_identity<D: DrawTarget<Color = BinaryColor>>(
 
 fn test_identity() -> NodeIdentityCard<'static> {
     NodeIdentityCard {
-        name: "Hopspot-a233",
-        delivery_hex: "a2335c1f00112233445566778899aaff",
+        name: "Hopspot-feed",
+        delivery_hex: "feed5c1f00112233445566778899aaff",
     }
 }
 
