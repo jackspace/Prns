@@ -124,3 +124,41 @@ impl SharedFaceFrame {
         self.frame.lock(|cell| out.copy_from_slice(&*cell.borrow()));
     }
 }
+
+/// The floor between accepted remote presses. The physical button debounces at
+/// [`BUTTON_DEBOUNCE`]; the remote face gets a harder cap because anyone on the
+/// SoftAP can post.
+#[cfg(feature = "wifi-auto")]
+pub(super) const REMOTE_BUTTON_MIN_INTERVAL: Duration = Duration::from_millis(150);
+
+#[cfg(feature = "wifi-auto")]
+static LAST_REMOTE_BUTTON_MS: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "wifi-auto")]
+pub(super) enum RemoteButtonPush {
+    Accepted,
+    RateCapped,
+    QueueFull,
+}
+
+/// Feed a remote press into the same channel the physical button drives, unless
+/// the rate cap or a full queue says no. The compare-exchange makes concurrent
+/// HTTP tasks race for one slot per interval instead of all passing the check.
+#[cfg(feature = "wifi-auto")]
+pub(super) fn push_remote_button(event: screen::InputEvent) -> RemoteButtonPush {
+    let now_ms = embassy_time::Instant::now().as_millis();
+    let last_ms = LAST_REMOTE_BUTTON_MS.load(Ordering::Relaxed);
+    if now_ms.saturating_sub(last_ms) < REMOTE_BUTTON_MIN_INTERVAL.as_millis() {
+        return RemoteButtonPush::RateCapped;
+    }
+    let claimed = LAST_REMOTE_BUTTON_MS
+        .compare_exchange(last_ms, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok();
+    if !claimed {
+        return RemoteButtonPush::RateCapped;
+    }
+    if BUTTON_EVENTS.try_send(event).is_err() {
+        return RemoteButtonPush::QueueFull;
+    }
+    RemoteButtonPush::Accepted
+}

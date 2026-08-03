@@ -445,6 +445,24 @@ async fn serve_site_connection<'a>(
     let method = parts.next().unwrap_or("");
     let raw_path = parts.next().unwrap_or("/");
     let is_head = method == "HEAD";
+    let path = normalize_http_path(raw_path);
+    if path == "/face/button" {
+        if method != "POST" {
+            let response = send_method_not_allowed(socket, is_head).await;
+            return Ok(HttpResponseAttempt {
+                method,
+                path: raw_path,
+                written: response.is_ok(),
+            });
+        }
+        let body_byte = read_face_button_body(socket, request_buffer, len).await;
+        let response = send_face_button_response(socket, body_byte).await;
+        return Ok(HttpResponseAttempt {
+            method: "POST",
+            path: "/face/button",
+            written: response.is_ok(),
+        });
+    }
     let response = if method != "GET" && !is_head {
         send_site_response(
             socket,
@@ -457,7 +475,6 @@ async fn serve_site_connection<'a>(
         )
         .await
     } else {
-        let path = normalize_http_path(raw_path);
         if path == "/captive-portal/api" {
             send_captive_portal_api(socket, is_head).await
         } else if path == "/face/frame" {
@@ -573,6 +590,107 @@ async fn send_captive_portal_api(
             content_type: "application/captive+json",
             body,
             head_only,
+        },
+    )
+    .await
+}
+
+#[cfg(feature = "wifi-auto")]
+async fn send_method_not_allowed(
+    socket: &mut TcpSocket<'static>,
+    head_only: bool,
+) -> Result<(), ()> {
+    send_site_response(
+        socket,
+        SiteResponse {
+            status: "405 Method Not Allowed",
+            content_type: "text/plain; charset=utf-8",
+            body: b"method not allowed\n",
+            head_only,
+        },
+    )
+    .await
+}
+
+/// `/face/button` body bytes: one byte, short or long, matching what the
+/// physical button can say.
+#[cfg(feature = "wifi-auto")]
+const FACE_BUTTON_SHORT: u8 = 0;
+#[cfg(feature = "wifi-auto")]
+const FACE_BUTTON_LONG: u8 = 1;
+
+/// How long to wait for a `/face/button` body that arrives in its own TCP
+/// segment after the headers. Matches the follow-up read timeout in
+/// [`read_http_request`].
+#[cfg(feature = "wifi-auto")]
+const FACE_BUTTON_BODY_TIMEOUT: Duration = Duration::from_millis(750);
+
+/// The one-byte `/face/button` body: usually already behind the headers in the
+/// request buffer, otherwise one bounded follow-up read.
+#[cfg(feature = "wifi-auto")]
+async fn read_face_button_body(
+    socket: &mut TcpSocket<'static>,
+    request_buffer: &mut [u8],
+    request_len: usize,
+) -> Option<u8> {
+    let body_start = http_body_start(&request_buffer[..request_len])?;
+    if body_start < request_len {
+        return Some(request_buffer[body_start]);
+    }
+    if body_start >= request_buffer.len() {
+        return None;
+    }
+    match with_timeout(
+        FACE_BUTTON_BODY_TIMEOUT,
+        socket.read(&mut request_buffer[body_start..]),
+    )
+    .await
+    {
+        Ok(Ok(read)) if read > 0 => Some(request_buffer[body_start]),
+        _ => None,
+    }
+}
+
+/// Where the HTTP body begins, once the header terminator has arrived; accepts
+/// the same lenient bare-newline form as [`http_headers_complete`].
+#[cfg(feature = "wifi-auto")]
+fn http_body_start(bytes: &[u8]) -> Option<usize> {
+    if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+        return Some(position + 4);
+    }
+    bytes
+        .windows(2)
+        .position(|window| window == b"\n\n")
+        .map(|position| position + 2)
+}
+
+#[cfg(feature = "wifi-auto")]
+async fn send_face_button_response(
+    socket: &mut TcpSocket<'static>,
+    body_byte: Option<u8>,
+) -> Result<(), ()> {
+    let event = match body_byte {
+        Some(FACE_BUTTON_SHORT) => Some(screen::InputEvent::ShortPress),
+        Some(FACE_BUTTON_LONG) => Some(screen::InputEvent::LongPress),
+        Some(_) | None => None,
+    };
+    let (status, body): (&str, &[u8]) = match event.map(face::push_remote_button) {
+        None => ("400 Bad Request", b"expected one byte: 0 short, 1 long\n"),
+        Some(face::RemoteButtonPush::Accepted) => ("200 OK", b"ok\n"),
+        Some(face::RemoteButtonPush::RateCapped) => {
+            ("429 Too Many Requests", b"press rate capped\n")
+        }
+        Some(face::RemoteButtonPush::QueueFull) => {
+            ("503 Service Unavailable", b"button queue full\n")
+        }
+    };
+    send_site_response(
+        socket,
+        SiteResponse {
+            status,
+            content_type: "text/plain; charset=utf-8",
+            body,
+            head_only: false,
         },
     )
     .await
