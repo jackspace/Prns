@@ -210,8 +210,8 @@ pub struct T114Battery {
 pub struct T114DeferredHardware {
     radio_bus: Peri<'static, peripherals::TWISPI0>,
     radio_sck: Peri<'static, peripherals::P0_19>,
-    radio_mosi: Peri<'static, peripherals::P0_22>,
     radio_miso: Peri<'static, peripherals::P0_23>,
+    radio_mosi: Peri<'static, peripherals::P0_22>,
     radio_cs: Peri<'static, peripherals::P0_24>,
     radio_busy: Peri<'static, peripherals::P0_17>,
     radio_dio1: Peri<'static, peripherals::P0_20>,
@@ -280,8 +280,8 @@ impl Nrf52840Board for HeltecT114Board {
             deferred: T114DeferredHardware {
                 radio_bus: peripherals.TWISPI0,
                 radio_sck: peripherals.P0_19,
-                radio_mosi: peripherals.P0_22,
                 radio_miso: peripherals.P0_23,
+                radio_mosi: peripherals.P0_22,
                 radio_cs: peripherals.P0_24,
                 radio_busy: peripherals.P0_17,
                 radio_dio1: peripherals.P0_20,
@@ -309,8 +309,8 @@ impl Nrf52840Board for HeltecT114Board {
             deferred.radio_bus,
             Irqs,
             deferred.radio_sck,
-            deferred.radio_mosi,
             deferred.radio_miso,
+            deferred.radio_mosi,
             radio_spim_config,
         );
         let radio_cs = Output::new(deferred.radio_cs, Level::High, OutputDrive::Standard);
