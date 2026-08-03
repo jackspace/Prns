@@ -153,7 +153,7 @@
       "provisioning": null,
       "build": {
         "kind": "uf2",
-        "package": "t-echo",
+        "package": "hopspot-t-echo",
         "rust_target": "thumbv7em-none-eabihf",
         "family_id": "0xADA52840",
         "base_address": "0x27000",

@@ -3,13 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CRATE="$ROOT/personal-hopspot/embedded/nrf52840"
-BIN_NAME="t-echo"
+BIN_NAME="hopspot-t-echo"
 BASE="0x27000"
 FAMILY="0xADA52840"
 VOLUME="/Volumes/TECHOBOOT"
 
 cd "$CRATE"
-cargo build --release --locked
+cargo build --release --locked -p "$BIN_NAME"
 
 HOST_TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
 OBJCOPY="$(rustc --print sysroot)/lib/rustlib/$HOST_TRIPLE/bin/llvm-objcopy"

@@ -1143,6 +1143,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hopspot-t-echo"
+version = "0.1.0"
+dependencies = [
+ "cortex-m-rt",
+ "embassy-executor",
+ "panic-halt",
+ "personal-hopspot-nrf52840",
+]
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1484,6 +1494,30 @@ dependencies = [
  "heapless 0.8.0",
  "personal-rns",
  "sha2 0.11.0",
+]
+
+[[package]]
+name = "personal-hopspot-nrf52840"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-nrf",
+ "embassy-sync",
+ "embassy-time",
+ "embassy-usb",
+ "embedded-graphics",
+ "embedded-hal 1.0.0",
+ "embedded-hal-bus",
+ "embedded-io-async 0.6.1",
+ "epd-waveshare",
+ "heapless 0.8.0",
+ "heapless 0.9.3",
+ "nrf-softdevice",
+ "personal-hopspot-core",
+ "personal-rns",
+ "static_cell",
 ]
 
 [[package]]
@@ -1988,32 +2022,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "t-echo"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "embassy-executor",
- "embassy-futures",
- "embassy-nrf",
- "embassy-sync",
- "embassy-time",
- "embassy-usb",
- "embedded-graphics",
- "embedded-hal 1.0.0",
- "embedded-hal-bus",
- "embedded-io-async 0.6.1",
- "epd-waveshare",
- "heapless 0.8.0",
- "heapless 0.9.3",
- "nrf-softdevice",
- "panic-halt",
- "personal-hopspot-core",
- "personal-rns",
- "static_cell",
 ]
 
 [[package]]

@@ -9,9 +9,9 @@ use embassy_time::{Delay, Duration, Timer};
 use embassy_usb::{Builder, Config as UsbConfig};
 use static_cell::{ConstStaticCell, StaticCell};
 
+use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_hal_bus::spi::ExclusiveDevice;
-use epd_waveshare::color::Color as EpdColor;
 
 use nrf_softdevice::ble::l2cap;
 use nrf_softdevice::{Flash, Softdevice};
@@ -33,22 +33,16 @@ use personal_rns::storage::StorageLayout;
 use personal_rns::usb_auto::{UsbAutoDevice, UsbAutoDeviceInput};
 use personal_rns::usb_auto::{WebUsbAutoClass, WebUsbAutoState, WEBUSB_AUTO_PACKET_SIZE};
 
-use super::bluetooth_auto::{
+use crate::bluetooth_auto::{
     acceptor, scanner, serve_slot, softdevice_config, softdevice_task, usb_vbus_present,
     L2capPacket, NrfBleBackend, Server, BLE_SHARED, BLE_SUPERVISOR_ID, HUB, MEMBERS, OUTBOUND_WAKE,
     POOL,
 };
-use super::board::{
-    TechoBoard, TechoControls, TechoDisplayHardware, TechoEarlyHardware, TechoFaceHardware,
-    TechoRuntimeHardware, TechoUsbHardware,
-};
-use super::display::{build_cards, build_snapshots, frame_hash, EinkScreen};
-use super::input;
-use super::node::*;
+use crate::board::{EarlyHardware, Nrf52840Board, RuntimeHardware, UsbHardware};
+use crate::display::{build_cards, build_snapshots};
+use crate::input;
+use crate::node::*;
 
-const PARTIAL_REFRESH_LIMIT: u32 = 64;
-const FULL_REFRESH_MAX_AGE_MS: u64 = 30 * 60 * 1_000;
-const TELEMETRY_MIN_INTERVAL_MS: u64 = 5_000;
 const STATS_POLL: Duration = Duration::from_secs(1);
 const EINK_ANIMATION_MS: u64 = 0;
 const NOTICE_MS: u64 = 900;
@@ -59,7 +53,7 @@ const USB_MSOS_DESCRIPTOR_BYTES: usize = 192;
 #[embassy_executor::task]
 async fn manifold_task(
     node: &'static mut Node,
-    persistence: &'static mut super::persistence::TechoPersistence,
+    persistence: &'static mut crate::persistence::Nrf52840Persistence,
 ) {
     let _ = node.restore_embedded_persistence(persistence).await;
     node.run_manifold_with_persistence_and_interface_store(&INTERFACE_STORE, persistence)
@@ -67,32 +61,32 @@ async fn manifold_task(
 }
 
 #[allow(clippy::too_many_lines)]
-pub(crate) async fn run(spawner: Spawner) -> ! {
-    let ((node_bootstrap, ble_bootstrap), early_hardware) =
-        TechoBoard::initialize_identities(|nvmc, rng| {
-            let mut fill_entropy = |bytes: &mut [u8]| rng.blocking_fill_bytes(bytes);
-            let node_bootstrap = super::identity::bootstrap_node_identity(nvmc, &mut fill_entropy);
-            let ble_bootstrap = super::identity::bootstrap_ble_identity(nvmc, &mut fill_entropy);
-            (node_bootstrap, ble_bootstrap)
-        });
+pub(crate) async fn run<B: Nrf52840Board>(spawner: Spawner) -> ! {
+    let ((node_bootstrap, ble_bootstrap), early_hardware) = B::claim(|nvmc, rng| {
+        let mut fill_entropy = |bytes: &mut [u8]| rng.blocking_fill_bytes(bytes);
+        let node_bootstrap = crate::identity::bootstrap_node_identity(nvmc, &mut fill_entropy);
+        let ble_bootstrap = crate::identity::bootstrap_ble_identity(nvmc, &mut fill_entropy);
+        (node_bootstrap, ble_bootstrap)
+    });
     let identity_startup_notice =
-        super::identity::startup_notice(node_bootstrap.persistence(), ble_bootstrap.persistence());
+        crate::identity::startup_notice(node_bootstrap.persistence(), ble_bootstrap.persistence());
     let node_identity = node_bootstrap.into_identity();
     let ble_identity = Some(ble_bootstrap.into_identity());
 
-    let TechoEarlyHardware {
+    let EarlyHardware {
         usb,
-        face,
+        battery,
+        status_led,
         deferred,
     } = early_hardware;
-    let TechoUsbHardware {
+    let UsbHardware {
         driver: usb_driver,
         vbus,
     } = usb;
     let mut usb_config = UsbConfig::new(WEBUSB_VENDOR_ID, WEBUSB_PRODUCT_ID);
     usb_config.manufacturer = Some("Stay Personal");
-    usb_config.product = Some("Personal Hopspot (T-Echo)");
-    usb_config.serial_number = Some("PERSONAL-RNS-TECHO-HOP");
+    usb_config.product = Some(B::USB_PRODUCT);
+    usb_config.serial_number = Some(B::USB_SERIAL_NUMBER);
     usb_config.max_packet_size_0 = 64;
     static CONFIG_DESC: StaticCell<[u8; USB_CONFIG_DESCRIPTOR_BYTES]> = StaticCell::new();
     static BOS_DESC: StaticCell<[u8; USB_BOS_DESCRIPTOR_BYTES]> = StaticCell::new();
@@ -141,7 +135,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
         hopspot::RadioProfileLoadNotice::Reset => hopspot::UiNotice::ProfileReset,
     });
     if let Some(identity) = ble_identity {
-        super::bluetooth_auto::set_columba_identity(sd, server, identity);
+        crate::bluetooth_auto::set_columba_identity(sd, server, identity);
     }
     if ble_identity.is_some() {
         for idx in 0..POOL {
@@ -149,28 +143,20 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
         }
     }
 
-    let TechoRuntimeHardware {
+    let RuntimeHardware {
         radio,
         display,
-        controls,
-    } = deferred.finish().await;
-    let TechoDisplayHardware {
-        driver: eink,
-        mut panel,
-        _rail: _eink_rail,
-    } = display;
-    let TechoControls { button, frontlight } = controls;
-    let TechoFaceHardware {
-        battery: saadc,
-        status_led: mut led,
-    } = face;
+        button,
+        illumination,
+    } = B::finish(deferred).await;
+    let mut led = status_led;
 
     let transport_secret = node_identity.transport_secret();
     let destination_secret = node_identity.into_destination_secret();
     let destination_hashes = hopspot::HopspotDestinationSet::new(
         destination_secret.clone(),
-        ANNOUNCE_APP_DATA,
-        NODE_ANNOUNCE_APP_DATA,
+        B::ANNOUNCE_APP_DATA,
+        B::NODE_ANNOUNCE_APP_DATA,
     )
     .destination_hashes()
     .expect("the hopspot destination names are valid");
@@ -216,7 +202,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
     let (usb_tx, usb_rx) = class.split();
     static USB_STATUS: StaticCell<EmbassyInterfaceStatus> = StaticCell::new();
     let usb_status: &'static EmbassyInterfaceStatus = USB_STATUS.init(EmbassyInterfaceStatus::new(
-        USB_INTERFACE_ID,
+        B::USB_INTERFACE_ID,
         ConnectionState::Initializing,
     ));
     let usb_dev = UsbAutoDevice::new(UsbAutoDeviceInput {
@@ -251,21 +237,21 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
         transport_identity: Some(transport_secret),
         pre_configured_destinations: hopspot::HopspotDestinationSet::new(
             destination_secret,
-            ANNOUNCE_APP_DATA,
-            NODE_ANNOUNCE_APP_DATA,
+            B::ANNOUNCE_APP_DATA,
+            B::NODE_ANNOUNCE_APP_DATA,
         )
         .into_preconfigured_destinations(),
         app_state: (),
-        storage: crate::storage::TechoStorage,
+        storage: crate::storage::Nrf52840Storage,
         request_endpoints: hopspot::node_pages::NodePageRoutes,
         interfaces: personal_rns::runtime::ManuallyAttached,
-        persistence: super::persistence::new(shared_flash),
+        persistence: crate::persistence::new(shared_flash),
         on_event: ignore_events as for<'a> fn(PrnsEvent<'a>, &()),
     };
     let (node, persistence) =
         PrnsNode::init_static_with_persistence(&NODE, recipe, manifold_wiring, host);
     node.set_protocol_policy(personal_hopspot_core::EMBEDDED_HOPSPOT_PROTOCOL_POLICY);
-    static PERSISTENCE: StaticCell<super::persistence::TechoPersistence> = StaticCell::new();
+    static PERSISTENCE: StaticCell<crate::persistence::Nrf52840Persistence> = StaticCell::new();
     let persistence = PERSISTENCE.init(persistence);
     spawner.spawn(manifold_task(node, persistence).expect("manifold task fits"));
     let lora_seam = lora_lane.into_seam(NOTIFY.sender(), seeded_entropy);
@@ -308,13 +294,13 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
 
     let ui_handle = PrnsNodeHandle::new(COMMANDS.sender(), &COMPLETION);
     let render = async move {
-        let mut saadc = saadc;
-        let mut epd = match eink {
-            Some(epd) => epd,
+        let mut probe = battery;
+        let mut display = match display {
+            Some(display) => display,
             None => core::future::pending().await,
         };
         let mut ui_state = hopspot::UiState::new(hopspot::UiConfiguration {
-            storage_limits: <crate::storage::TechoStorage as StorageLayout>::LIMITS,
+            storage_limits: <crate::storage::Nrf52840Storage as StorageLayout>::LIMITS,
             display_power_control: hopspot::DisplayPowerControl::Unavailable,
             access_point: hopspot::AccessPointState::Unsupported,
         });
@@ -333,17 +319,14 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
             TELEMETRY_MIN_INTERVAL_MS,
         );
         let mut refresh_urgency = hopspot::EinkRefreshUrgency::Immediate;
-        let mut displayed_hash = None;
         let mut activity = hopspot::CardActivityTracker::<{ MEMBERS + 4 }>::new();
         let mut notice_until_ms =
             startup_notice.map(|notice| (embassy_time::Instant::now().as_millis() + 5_000, notice));
         let mut battery_gauge = hopspot::BatteryGauge::lipo();
         let mut persistence_notice = hopspot::PersistenceNotice::new();
         loop {
-            let mut adc = [0i16; 1];
-            saadc.sample(&mut adc).await;
-            let vbat_mv = (adc[0].max(0) as u32) * 6000 / 4096;
-            let battery = battery_gauge.update(Some(vbat_mv), usb_vbus_present());
+            let vbat_mv = B::battery_millivolts(&mut probe).await;
+            let battery = battery_gauge.update(vbat_mv, usb_vbus_present());
 
             let snapshots = build_snapshots(lora_status, usb_status);
             let mut cards = build_cards(&snapshots, lora_status.id(), usb_status.id());
@@ -357,7 +340,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
             ui_state.sync(content);
             if persistence_notice.update(
                 &mut ui_state,
-                super::persistence::persistence_state(),
+                crate::persistence::persistence_state(),
                 now_ms,
             ) {
                 refresh_urgency = hopspot::EinkRefreshUrgency::Immediate;
@@ -377,7 +360,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
                 }
             }
 
-            let _ = panel.clear(EpdColor::White);
+            let _ = display.clear(BinaryColor::Off);
             let mut interface_menu_details = hopspot::snapshots_to_interface_menu_details(
                 ui_state.selected_card(content.cards),
                 &snapshots,
@@ -412,7 +395,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
                 });
             }
             hopspot::render(
-                &mut EinkScreen { panel: &mut panel },
+                &mut display,
                 hopspot::RenderFrame {
                     content,
                     battery,
@@ -421,28 +404,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
                     animation_ms: EINK_ANIMATION_MS,
                 },
             );
-            let hash = frame_hash(panel.buffer());
-            if displayed_hash != Some(hash) {
-                match refresh_policy.for_changed_frame(now_ms, &refresh_urgency) {
-                    hopspot::EinkRefresh::Deferred => {}
-                    hopspot::EinkRefresh::Full => {
-                        if epd.full_update(panel.buffer()).is_ok() {
-                            refresh_policy.full_refresh_succeeded(now_ms);
-                            displayed_hash = Some(hash);
-                        } else {
-                            refresh_policy.refresh_failed();
-                        }
-                    }
-                    hopspot::EinkRefresh::Partial => {
-                        if epd.partial_update(panel.buffer()).is_ok() {
-                            refresh_policy.partial_refresh_succeeded(now_ms);
-                            displayed_hash = Some(hash);
-                        } else {
-                            refresh_policy.refresh_failed();
-                        }
-                    }
-                }
-            }
+            B::present(&mut display, now_ms, &refresh_urgency);
 
             match select3(
                 input::EVENTS.receive(),
@@ -593,7 +555,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
         usb_dev.run(usb_seam),
         heartbeat,
         input::drive_button(button),
-        input::drive_frontlight(frontlight),
+        B::drive_illumination(illumination),
     );
     let ble_plane = async move {
         match bluetooth {

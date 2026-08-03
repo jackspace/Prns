@@ -12,5 +12,5 @@ MEMORY
 
 ASSERT(
   ORIGIN(RAM) + LENGTH(RAM) - _stack_end >= MIN_RUNTIME_STACK_BYTES,
-  "T-Echo static memory leaves too little runtime stack"
+  "Static memory leaves too little runtime stack"
 )

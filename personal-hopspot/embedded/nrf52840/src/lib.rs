@@ -1,3 +1,7 @@
+#![no_std]
+
+pub mod boards;
+
 mod bluetooth_auto;
 mod bluetooth_gatt_server;
 mod board;
@@ -6,6 +10,6 @@ mod firmware;
 mod identity;
 mod input;
 mod node;
-pub(crate) mod persistence;
-
-pub(super) use firmware::run;
+mod panels;
+mod persistence;
+mod storage;

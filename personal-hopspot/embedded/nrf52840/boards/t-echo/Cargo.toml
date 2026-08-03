@@ -1,0 +1,13 @@
+[package]
+name = "hopspot-t-echo"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Personal Hopspot firmware for the LilyGo T-Echo (nRF52840 + SX1262 + 200x200 SSD1681 e-ink)"
+
+[dependencies]
+personal-hopspot-nrf52840 = { path = "../.." }
+cortex-m-rt = "0.7"
+embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread"] }
+panic-halt = "1.0"

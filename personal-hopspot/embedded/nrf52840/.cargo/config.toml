@@ -1,3 +1,5 @@
+#   cargo t-echo           build the LilyGo T-Echo firmware
+
 [build]
 target = "thumbv7em-none-eabihf"
 
@@ -5,3 +7,6 @@ target = "thumbv7em-none-eabihf"
 rustflags = [
     "-C", "link-arg=-Tlink.x",
 ]
+
+[alias]
+t-echo = "build --release -p hopspot-t-echo"

@@ -12,22 +12,22 @@ pub const ARENA_BYTES: usize = personal_hopspot_core::T_ECHO_MIN_ARENA_BYTES;
 
 const PENDING: usize = 8;
 
-pub type TechoSharedFlash = SharedNorFlash<'static, CriticalSectionRawMutex, Flash>;
-pub type TechoPersistence = EmbeddedFlashPersistence<
-    TechoSharedFlash,
-    FixedRouteSnapshotKeys<{ crate::storage::TechoStorage::TRACKED_DESTINATIONS }>,
+pub type Nrf52840SharedFlash = SharedNorFlash<'static, CriticalSectionRawMutex, Flash>;
+pub type Nrf52840Persistence = EmbeddedFlashPersistence<
+    Nrf52840SharedFlash,
+    FixedRouteSnapshotKeys<{ crate::storage::Nrf52840Storage::TRACKED_DESTINATIONS }>,
     fn(EmbeddedPersistenceDiagnostic),
     PENDING,
 >;
 
 static PERSISTENCE_STATE: AtomicU8 = AtomicU8::new(PersistenceState::Durable.encode());
 
-pub fn new(flash: TechoSharedFlash) -> TechoPersistence {
+pub fn new(flash: Nrf52840SharedFlash) -> Nrf52840Persistence {
     EmbeddedFlashPersistence::new(
         flash,
         personal_hopspot_core::T_ECHO_JOURNAL_LAYOUT,
         EmbeddedPersistencePolicy::hopspot_default(EmbeddedCompactionPolicy::hopspot(
-            crate::storage::TechoStorage::MAX_CRITICAL_FLASH_JOURNAL_BYTES,
+            crate::storage::Nrf52840Storage::MAX_CRITICAL_FLASH_JOURNAL_BYTES,
         )),
         FixedRouteSnapshotKeys::new(),
         observe as fn(EmbeddedPersistenceDiagnostic),

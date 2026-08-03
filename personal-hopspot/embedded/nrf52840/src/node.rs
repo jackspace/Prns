@@ -16,7 +16,7 @@ use personal_rns::runtime::{
 };
 use personal_rns::storage::{StorageCapacity, StorageLayout};
 
-use super::bluetooth_auto;
+use crate::bluetooth_auto;
 
 pub(super) const LANE_COUNT: usize = 3;
 pub(super) const LANE_DEPTH: usize = 1;
@@ -28,7 +28,6 @@ const LORA_OUTBOUND_DEPTH: usize = EngineStorageType::MAX_OUTGOING_RESOURCE_REAC
 /// update. Keep that complete reaction lossless on page-serving packet interfaces.
 const BLE_OUTBOUND_DEPTH: usize = EngineStorageType::MAX_OUTGOING_RESOURCE_REACTION_FRAMES;
 const INTERFACE_CAPACITY: usize = 2 + bluetooth_auto::MEMBERS;
-pub(super) const USB_INTERFACE_ID: InterfaceId = InterfaceId::new(*b"techousb");
 pub(super) const NOTIFY_CAP: usize = minimum_manifold_notification_capacity(LANE_COUNT, LANE_DEPTH);
 const COMMANDS_CAP: usize = 2;
 pub(super) const LIFECYCLE_CAP: usize = bluetooth_auto::MEMBERS;
@@ -42,13 +41,10 @@ const PACKET_PHY_RETENTION_CAPACITY: usize =
 const PACKET_PHY_INDEX_BUCKETS: usize =
     personal_rns::routing::dedup::dedup_index_buckets(PACKET_PHY_RETENTION_CAPACITY);
 
-const _: () = assert!(EngineStorageType::LINK_SESSIONS > bluetooth_auto::MEMBERS);
-
-pub(super) const ANNOUNCE_APP_DATA: &[u8] = b"\x92\xc4\x17Personal Hopspot T-Echo\xc0";
-pub(super) const NODE_ANNOUNCE_APP_DATA: &[u8] = b"Personal Hopspot T-Echo";
+const _: () = assert!(EngineStorageType::LINK_SESSIONS > crate::bluetooth_auto::MEMBERS);
 
 pub(super) type Mtx = CriticalSectionRawMutex;
-type EngineStorageType = crate::storage::TechoStorage;
+type EngineStorageType = crate::storage::Nrf52840Storage;
 type InterfaceStore = EmbassyInterfaceStore<
     Mtx,
     INTERFACE_STORE_CAP,

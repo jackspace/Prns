@@ -355,8 +355,10 @@ fn build_uf2(
         .arg("build")
         .arg("--release")
         .arg("--locked")
+        .arg("-p")
+        .arg(&build.package)
         .current_dir(&crate_dir);
-    run_status(&mut cargo, "T-Echo cargo build")?;
+    run_status(&mut cargo, "nRF52840 cargo build")?;
 
     let host_triple = rust_host_triple()?;
     let sysroot = capture_stdout(Command::new("rustc").arg("--print").arg("sysroot"), "rustc")?;

@@ -1,16 +1,17 @@
 [package]
-name = "t-echo"
+name = "personal-hopspot-nrf52840"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "LilyGo T-Echo (nRF52840 + SX1262 + 200x200 SSD1681 e-ink) Personal Hopspot face: drives the Personal Reticulum engine on bare metal and renders the shared Hopspot screen on e-ink."
+description = "Personal Hopspot nRF52840 firmware: drives the Personal Reticulum engine on bare metal under the S140 SoftDevice and renders the shared Hopspot screen through per-board panels. Boards: LilyGo T-Echo (200x200 SSD1681 e-ink)."
 
 [workspace]
+members = ["boards/t-echo"]
+resolver = "2"
 
-[[bin]]
-name = "t-echo"
-path = "src/main.rs"
+[lib]
+path = "src/lib.rs"
 
 [dependencies]
 personal-rns = { path = "../../../personal-rns", default-features = false, features = ["embassy-host", "flash", "lora", "bluetooth-auto", "usb"] }
@@ -22,8 +23,6 @@ embedded-hal = "1.0"
 embedded-hal-bus = { version = "0.3", features = ["async"] }
 
 cortex-m = { version = "0.7", features = ["inline-asm"] }
-cortex-m-rt = "0.7"
-panic-halt = "1.0"
 
 embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.5" }
@@ -36,8 +35,8 @@ static_cell = "2.1"
 heapless = "0.8"
 
 embedded-io-async = "0.6"
-# T-Echo firmware. nrf-softdevice does not depend on embassy-nrf, so it rides alongside the
-# T-Echo's embassy-nrf 0.10. The S140 v7 binding talks to the SoftDevice over SVCs.
+# nrf-softdevice does not depend on embassy-nrf, so it rides alongside this crate's
+# embassy-nrf 0.10. The S140 v7 binding talks to the SoftDevice over SVCs.
 # evt-max-size-512: our att_mtu is 247, so a single GATT write/notification event reaches ~258 bytes —
 # past the 128-byte default and the 256 tier. Without this the SoftDevice's event read overflows and
 # nrf-softdevice panics ("BLE_EVT_MAX_SIZE is too low") the instant a peer sends a full-MTU payload.

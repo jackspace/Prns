@@ -299,8 +299,8 @@ jobs:
       - name: prns-interfaces-embassy — cross-build (nRF52840 / thumbv7em)
         run: cargo build --locked --target thumbv7em-none-eabihf --features "lora,bluetooth-auto,usb"
         working-directory: prns-interfaces/impls/embassy
-      - name: t-echo firmware — cross-build (nRF52840 / thumbv7em)
-        run: cargo build --release --locked
+      - name: nRF52840 firmware — cross-build (thumbv7em)
+        run: cargo build --release --locked -p hopspot-t-echo
         working-directory: personal-hopspot/embedded/nrf52840
 
   android-service:
