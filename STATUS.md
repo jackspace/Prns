@@ -42,7 +42,8 @@ boot-loop until a wired reflash. Verify-then-commit makes "image is corrupt" imp
    prehashed verification (Ed25519 over BLAKE2b-512) against a compile-time key, flash
    readback re-hash, activate only after both digests agree, reboot. Typed errors for
    every refusal. Boot health task marks the running slot valid and repairs an erased
-   otadata selection.
+   otadata selection; it waits out any in-flight install so it can never mark a freshly
+   activated slot valid before that image has booted once.
 4. `tools/ota/sign-test-image.py`: test-only Minisign-compatible signer so the bench
    loop never touches release custody.
 
@@ -80,8 +81,9 @@ local to `src/s3/update.rs` unless noted:
 - `embedded_storage::nor_flash::RmwNorFlashStorage::new(flash, merge_buffer)` shape in
   embedded-storage 0.3, and that `FlashRegion` exposes `partition_size()` plus the
   ReadStorage and Storage impls when F: Storage.
-- blake2 0.10 pulls digest 0.10 alongside the tree's sha2 0.11 (digest 0.11); both
-  digest majors coexisting in one lockfile is expected but unproven here.
+- blake2 0.10 is in Cargo.toml but not yet in the embedded Cargo.lock (no cargo ran),
+  so the first build resolves it and needs registry access. The digest coexistence it
+  depends on is already proven: that lockfile carries digest 0.10.7 and 0.11.3 today.
 - The borrow sequencing in `serve_site_connection` (immutable header borrow ends before
   the update handler takes the buffer mutably) is standard NLL but untested.
 
