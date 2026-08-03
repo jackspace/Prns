@@ -19,6 +19,29 @@ pub struct HopspotDestinationHashes {
     pub node_page: DestinationHash,
 }
 
+impl HopspotDestinationHashes {
+    /// Derive both hashes from the identity alone, so a boot can name itself from the delivery
+    /// hash before it composes the announce app_data those destinations will carry.
+    pub fn derive(
+        identity: &Zeroizing<[u8; IDENTITY_SECRET_KEY_LEN]>,
+    ) -> Result<Self, ExpandNameError> {
+        let signer = InMemoryNodeIdentity::from_secret_key_bytes(identity);
+        let identity_hash = signer.identity_hash();
+        Ok(Self {
+            delivery: derive_single_destination_hash(
+                &identity_hash,
+                DELIVERY_APP_NAME,
+                DELIVERY_ASPECTS,
+            )?,
+            node_page: derive_single_destination_hash(
+                &identity_hash,
+                node_pages::NODE_APP_NAME,
+                node_pages::NODE_ASPECTS,
+            )?,
+        })
+    }
+}
+
 pub struct HopspotDestinationSet<'a> {
     identity: Zeroizing<[u8; IDENTITY_SECRET_KEY_LEN]>,
     delivery_announce_app_data: &'a [u8],
@@ -40,20 +63,7 @@ impl<'a> HopspotDestinationSet<'a> {
     }
 
     pub fn destination_hashes(&self) -> Result<HopspotDestinationHashes, ExpandNameError> {
-        let signer = InMemoryNodeIdentity::from_secret_key_bytes(&self.identity);
-        let identity_hash = signer.identity_hash();
-        Ok(HopspotDestinationHashes {
-            delivery: derive_single_destination_hash(
-                &identity_hash,
-                DELIVERY_APP_NAME,
-                DELIVERY_ASPECTS,
-            )?,
-            node_page: derive_single_destination_hash(
-                &identity_hash,
-                node_pages::NODE_APP_NAME,
-                node_pages::NODE_ASPECTS,
-            )?,
-        })
+        HopspotDestinationHashes::derive(&self.identity)
     }
 
     #[must_use]

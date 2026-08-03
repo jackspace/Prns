@@ -9,6 +9,7 @@ mod destinations;
 mod flash_identity;
 mod identity;
 mod mobile;
+mod naming;
 pub mod node_pages;
 mod screen;
 
@@ -30,6 +31,11 @@ pub use mobile::{
     InvalidMobileInputCode, MobileActionCode, MobileEngineFailure, MobileEngineState,
     MobileInputCode, MobileRgbaFrameBuffer, MOBILE_DARK_RGBA, MOBILE_LIT_RGBA, MOBILE_PANEL_HEIGHT,
     MOBILE_PANEL_WIDTH, MOBILE_PIXEL_COUNT, MOBILE_RGBA_BYTES,
+};
+pub use naming::{
+    delivery_announce_app_data, destination_hex, resolve_node_name, DeliveryAnnounceAppData,
+    DestinationHex, NodeName, DELIVERY_ANNOUNCE_APP_DATA_MAX_BYTES, DESTINATION_HEX_CHARS,
+    NODE_NAME_MAX_BYTES,
 };
 pub use screen::{
     card_label, render, splash, tcp_card_label, AccessPointState, Card, CardActivityTracker,
