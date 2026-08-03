@@ -17,7 +17,17 @@ use esp_hal::{
 
 const WORD_LEN: usize = 4;
 const SECTOR_LEN: usize = 4096;
-const BOUNCE_WORDS: usize = 64;
+/// One whole sector per ROM call.
+///
+/// This was 64 words, 256 bytes, which meant a single 4 KiB sector cost sixteen ROM calls for
+/// the read, sixteen for the erased-check scan and sixteen for the write, about forty eight in
+/// all. Each call carries the cache disable and re-enable the ROM helpers need, measured here at
+/// roughly 45 ms, so a sector cost about 2.2 seconds and a 1.6 MB firmware image was pacing at
+/// under 2 KB/s regardless of how good the radio link was. At a sector per call it is three.
+///
+/// The buffer is heap allocated rather than a stack array: 16 KiB of stack per call would
+/// overflow an embassy task, and next to a 45 ms flash operation an allocation is free.
+const BOUNCE_WORDS: usize = SECTOR_LEN / WORD_LEN;
 const ATTEMPTS: usize = 3;
 
 #[cfg(target_arch = "xtensa")]
@@ -97,10 +107,10 @@ impl ReadNorFlash for EspRomFlash {
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
         check_read(self, offset, bytes.len()).map_err(EspRomFlashError::Contract)?;
         let mut at = offset;
+        let mut bounce = alloc::vec![0u32; BOUNCE_WORDS];
         for chunk in bytes.chunks_mut(BOUNCE_WORDS * WORD_LEN) {
-            let mut bounce = [0u32; BOUNCE_WORDS];
             read_words(at, &mut bounce, chunk.len())?;
-            for (destination, word) in chunk.chunks_exact_mut(WORD_LEN).zip(bounce) {
+            for (destination, word) in chunk.chunks_exact_mut(WORD_LEN).zip(bounce.iter()) {
                 destination.copy_from_slice(&word.to_le_bytes());
             }
             at += chunk.len() as u32;
@@ -144,8 +154,8 @@ impl NorFlash for EspRomFlash {
         #[cfg(target_arch = "xtensa")]
         let _park = OtherCorePark::acquire();
         let mut at = offset;
+        let mut bounce = alloc::vec![0u32; BOUNCE_WORDS];
         for chunk in bytes.chunks(BOUNCE_WORDS * WORD_LEN) {
-            let mut bounce = [0u32; BOUNCE_WORDS];
             for (word, source) in bounce.iter_mut().zip(chunk.chunks_exact(WORD_LEN)) {
                 *word = u32::from_le_bytes([source[0], source[1], source[2], source[3]]);
             }
@@ -181,11 +191,7 @@ impl AsyncNorFlash for EspRomFlash {
     }
 }
 
-fn read_words(
-    offset: u32,
-    words: &mut [u32; BOUNCE_WORDS],
-    len: usize,
-) -> Result<(), EspRomFlashError> {
+fn read_words(offset: u32, words: &mut [u32], len: usize) -> Result<(), EspRomFlashError> {
     for attempt in 0..ATTEMPTS {
         let result = critical_section::with(|_| rom_read(offset, words.as_mut_ptr(), len as u32));
         if result == ESP_ROM_SPIFLASH_RESULT_OK {
@@ -198,11 +204,7 @@ fn read_words(
     Ok(())
 }
 
-fn write_words(
-    offset: u32,
-    words: &[u32; BOUNCE_WORDS],
-    len: usize,
-) -> Result<(), EspRomFlashError> {
+fn write_words(offset: u32, words: &[u32], len: usize) -> Result<(), EspRomFlashError> {
     for attempt in 0..ATTEMPTS {
         let result = critical_section::with(|_| {
             #[cfg(target_arch = "xtensa")]
@@ -238,8 +240,8 @@ fn erase_sector(sector: u32) -> Result<(), EspRomFlashError> {
 
 fn sector_is_erased(sector: u32) -> Result<bool, EspRomFlashError> {
     let base = sector * SECTOR_LEN as u32;
+    let mut bounce = alloc::vec![0u32; BOUNCE_WORDS];
     for offset in (0..SECTOR_LEN).step_by(BOUNCE_WORDS * WORD_LEN) {
-        let mut bounce = [0u32; BOUNCE_WORDS];
         read_words(base + offset as u32, &mut bounce, BOUNCE_WORDS * WORD_LEN)?;
         if bounce.iter().any(|word| *word != u32::MAX) {
             return Ok(false);
