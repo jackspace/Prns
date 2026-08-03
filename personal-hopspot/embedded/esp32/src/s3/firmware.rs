@@ -446,6 +446,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
             DEFAULT_OLED_AUTO_OFF_MS,
         );
         let mut render_tick = Ticker::every(RENDER_INTERVAL);
+        let mut face_frame = face::FaceFrame::new();
         let mut settle_after_draw = false;
         let mut persistence_notice = screen::PersistenceNotice::new();
         let mut first_render_pending = true;
@@ -539,20 +540,25 @@ pub(super) async fn run_core<B: Esp32S3Board>(
             if oled_power.tick(now_ms) == screen::OledPowerCommand::TurnOff {
                 B::set_display_awake(&mut display, false);
             }
+            // Compose into the shadow frame and publish it before the panel is
+            // considered: the remote face stays live when the OLED is absent or
+            // dark, and the physical panel is a blit of the same pixels.
+            screen::render(
+                &mut face_frame,
+                screen::RenderFrame {
+                    content,
+                    battery: battery_state,
+                    state: &ui_state,
+                    interface_menu_details: &interface_menu_details,
+                    animation_ms: now_ms,
+                },
+            );
+            FACE_FRAME.publish(&face_frame);
             if oled_power.is_lit() {
                 if first_render_pending {
                     boot_stage(BootPhase::DisplayFirstRenderBegin);
                 }
-                screen::render(
-                    &mut display,
-                    screen::RenderFrame {
-                        content,
-                        battery: battery_state,
-                        state: &ui_state,
-                        interface_menu_details: &interface_menu_details,
-                        animation_ms: now_ms,
-                    },
-                );
+                face_frame.draw_to(&mut display);
                 B::flush(&mut display);
                 if first_render_pending {
                     boot_stage(BootPhase::DisplayFirstRenderComplete);

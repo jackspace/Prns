@@ -285,6 +285,7 @@ mod captive_portal;
 mod configuration;
 mod connectivity;
 mod display;
+mod face;
 
 #[cfg(feature = "wifi-auto")]
 use captive_portal::ap_ssid;
@@ -340,6 +341,10 @@ static OUTBOUND_WAKE: Signal<Mtx, ()> = Signal::new();
 static BLE_OUTBOUND_WAKE: Signal<Mtx, ()> = Signal::new();
 static COMPLETION: CompletionPool<Mtx, COMPLETIONS_CAP> = CompletionPool::new();
 static BUTTON_EVENTS: Channel<Mtx, screen::InputEvent, 4> = Channel::new();
+/// The latest composed face frame: the render loop publishes each pass, the
+/// captive-portal `/face/frame` handler snapshots. This is what makes a
+/// screenless board's screen real.
+static FACE_FRAME: face::SharedFaceFrame = face::SharedFaceFrame::new();
 /// Per-interface engine counts the manifold (core 1) pushes into and the render task (core 0) reads —
 /// a `CriticalSectionRawMutex` store so the `&'static` shared across cores stays `Sync`. Capacity is a
 /// power of two above the interface ceiling, so a live interface's counts never get dropped.
