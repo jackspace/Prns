@@ -17,9 +17,8 @@ use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embedded_storage::nor_flash::RmwNorFlashStorage;
 use embedded_storage::{ReadStorage, Storage};
-use esp_bootloader_esp_idf::ota::OtaImageState;
-use esp_bootloader_esp_idf::ota_updater::OtaUpdater;
-use esp_bootloader_esp_idf::partitions::{self, AppPartitionSubType, PartitionType};
+use esp_bootloader_esp_idf::ota::{Ota, OtaImageState};
+use esp_bootloader_esp_idf::partitions::{self, AppPartitionSubType};
 use personal_rns::crypto::{ed25519_verify, Ed25519PublicKey, Ed25519Signature};
 
 use super::captive_portal::tcp_write_all;
@@ -211,14 +210,27 @@ async fn install_image(
         merge.as_mut_slice(),
     );
     let mut scratch = Box::new([0u8; partitions::PARTITION_TABLE_MAX_LEN]);
-    {
-        let table = partitions::read_partition_table(&mut storage, &mut scratch[..])
+    let table = partitions::read_partition_table(&mut storage, &mut scratch[..])
+        .map_err(UpdateError::Slots)?;
+    // Both slots are proved to sit above the identity head and clear of the route journal before
+    // either is written, so a table that would put an image over them is refused, not survived.
+    let ota_0 = validated_slot(&table, AppPartitionSubType::Ota0)?;
+    let ota_1 = validated_slot(&table, AppPartitionSubType::Ota1)?;
+    let ota_data =
+        find_raw(&table, RAW_TYPE_DATA, RAW_SUBTYPE_DATA_OTA).ok_or(UpdateError::OtaDataMissing)?;
+
+    let running = {
+        let mut ota = Ota::new(ota_data.as_embedded_storage(&mut storage), OTA_SLOT_COUNT)
             .map_err(UpdateError::Slots)?;
-        validated_slot(&table, AppPartitionSubType::Ota0)?;
-        validated_slot(&table, AppPartitionSubType::Ota1)?;
-    }
-    let mut updater = OtaUpdater::new(&mut storage, &mut scratch).map_err(UpdateError::Slots)?;
-    let (mut slot_region, target) = updater.next_partition().map_err(UpdateError::Slots)?;
+        ota.current_app_partition().map_err(UpdateError::Slots)?
+    };
+    let target = other_slot(running);
+    let target_entry = if target == AppPartitionSubType::Ota0 {
+        ota_0
+    } else {
+        ota_1
+    };
+    let mut slot_region = target_entry.as_embedded_storage(&mut storage);
     let slot_len = slot_region.partition_size();
     if expected > slot_len {
         return Err(UpdateError::ImageTooLarge {
@@ -288,12 +300,14 @@ async fn install_image(
         return Err(UpdateError::ReadbackMismatch);
     }
 
+    // Only now, with both digests agreeing, does the slot pointer move. Unsigned or wrongly
+    // signed bytes can reach the inactive slot, which is inert, but can never be selected.
     drop(slot_region);
-    updater
-        .activate_next_partition()
+    let mut ota = Ota::new(ota_data.as_embedded_storage(&mut storage), OTA_SLOT_COUNT)
         .map_err(UpdateError::Slots)?;
-    updater
-        .set_current_ota_state(OtaImageState::New)
+    ota.set_current_app_partition(target)
+        .map_err(UpdateError::Slots)?;
+    ota.set_current_ota_state(OtaImageState::New)
         .map_err(UpdateError::Slots)?;
     STAGED_SIGNATURE.lock(|staged| staged.borrow_mut().take());
     Ok(InstalledImage {
@@ -460,14 +474,46 @@ impl BodyReader<'_> {
     }
 }
 
-fn validated_slot(
-    table: &partitions::PartitionTable<'_>,
+/// Prns declares its own flash slots at application-defined partition types, 0x40 through 0x43,
+/// which the ESP-IDF partition format reserves for exactly that use. `partition_type()` in
+/// esp-bootloader-esp-idf 0.5.0 reaches `unreachable!()` on any type outside 0..=3, and every
+/// table helper in that crate calls it. `find_partition` panics as soon as it steps over one of
+/// ours, and `OtaUpdater::new` walks the entire table, so it panics on this board before it can
+/// find anything at all. The raw type and subtype bytes are public, so the table is searched with
+/// those instead. Everything downstream, including all OTA-data handling, is the crate's own.
+const RAW_TYPE_APP: u8 = 0x00;
+const RAW_TYPE_DATA: u8 = 0x01;
+const RAW_SUBTYPE_DATA_OTA: u8 = 0x00;
+const RAW_SUBTYPE_OTA_0: u8 = 0x10;
+const RAW_SUBTYPE_OTA_1: u8 = 0x11;
+/// ota_0 and ota_1. Not counting factory or test slots, which this table does not carry.
+const OTA_SLOT_COUNT: usize = 2;
+
+fn find_raw<'a>(
+    table: &partitions::PartitionTable<'a>,
+    raw_type: u8,
+    raw_subtype: u8,
+) -> Option<partitions::PartitionEntry<'a>> {
+    (0..table.len())
+        .filter_map(|index| table.get_partition(index).ok())
+        .find(|entry| entry.raw_type() == raw_type && entry.raw_subtype() == raw_subtype)
+}
+
+fn app_slot_raw_subtype(slot: AppPartitionSubType) -> Option<u8> {
+    match slot {
+        AppPartitionSubType::Ota0 => Some(RAW_SUBTYPE_OTA_0),
+        AppPartitionSubType::Ota1 => Some(RAW_SUBTYPE_OTA_1),
+        _ => None,
+    }
+}
+
+fn validated_slot<'a>(
+    table: &partitions::PartitionTable<'a>,
     slot: AppPartitionSubType,
-) -> Result<(), UpdateError> {
-    let entry = table
-        .find_partition(PartitionType::App(slot))
-        .map_err(UpdateError::Slots)?
-        .ok_or(UpdateError::SlotMissing { slot })?;
+) -> Result<partitions::PartitionEntry<'a>, UpdateError> {
+    let raw_subtype = app_slot_raw_subtype(slot).ok_or(UpdateError::SlotMissing { slot })?;
+    let entry =
+        find_raw(table, RAW_TYPE_APP, raw_subtype).ok_or(UpdateError::SlotMissing { slot })?;
     let offset = entry.offset();
     let len = entry.len();
     if offset < APP_SLOT_FLOOR {
@@ -477,7 +523,14 @@ fn validated_slot(
     if offset < ROUTE_JOURNAL_END && end > ROUTE_JOURNAL_START {
         return Err(UpdateError::SlotOverlapsRouteJournal { slot, offset, len });
     }
-    Ok(())
+    Ok(entry)
+}
+
+fn other_slot(slot: AppPartitionSubType) -> AppPartitionSubType {
+    match slot {
+        AppPartitionSubType::Ota0 => AppPartitionSubType::Ota1,
+        _ => AppPartitionSubType::Ota0,
+    }
 }
 
 pub(super) enum SlotHealth {
@@ -530,21 +583,32 @@ fn mark_running_slot_valid() -> Result<SlotHealth, UpdateError> {
         merge.as_mut_slice(),
     );
     let mut scratch = Box::new([0u8; partitions::PARTITION_TABLE_MAX_LEN]);
-    let Ok(mut updater) = OtaUpdater::new(&mut storage, &mut scratch) else {
+    let Ok(table) = partitions::read_partition_table(&mut storage, &mut scratch[..]) else {
         return Ok(SlotHealth::NoOtaSlots);
     };
-    match updater.selected_partition() {
-        Ok(_) => match updater.current_ota_state() {
-            Ok(OtaImageState::Valid) => Ok(SlotHealth::AlreadyValid),
-            Ok(_) | Err(_) => {
-                updater
-                    .set_current_ota_state(OtaImageState::Valid)
-                    .map_err(UpdateError::Slots)?;
-                Ok(SlotHealth::MarkedValid)
+    let (Some(ota_data), Some(_)) = (
+        find_raw(&table, RAW_TYPE_DATA, RAW_SUBTYPE_DATA_OTA),
+        find_raw(&table, RAW_TYPE_APP, RAW_SUBTYPE_OTA_0),
+    ) else {
+        // A single-slot table is not a fault, it just has nothing to confirm.
+        return Ok(SlotHealth::NoOtaSlots);
+    };
+    let mut ota = Ota::new(ota_data.as_embedded_storage(&mut storage), OTA_SLOT_COUNT)
+        .map_err(UpdateError::Slots)?;
+    // Factory means both sequence numbers are uninitialized, which is what an erased otadata
+    // looks like after a partial migration. The application lives in ota_0, so say so.
+    match ota.current_app_partition() {
+        Ok(AppPartitionSubType::Ota0) | Ok(AppPartitionSubType::Ota1) => {
+            match ota.current_ota_state() {
+                Ok(OtaImageState::Valid) => Ok(SlotHealth::AlreadyValid),
+                Ok(_) | Err(_) => {
+                    ota.set_current_ota_state(OtaImageState::Valid)
+                        .map_err(UpdateError::Slots)?;
+                    Ok(SlotHealth::MarkedValid)
+                }
             }
-        },
-        Err(_) => {
-            let mut ota = updater.ota_data().map_err(UpdateError::Slots)?;
+        }
+        Ok(_) | Err(_) => {
             ota.set_current_app_partition(AppPartitionSubType::Ota0)
                 .map_err(UpdateError::Slots)?;
             ota.set_current_ota_state(OtaImageState::Valid)
@@ -582,9 +646,14 @@ fn read_slot_status() -> Result<(&'static str, &'static str), UpdateError> {
         merge.as_mut_slice(),
     );
     let mut scratch = Box::new([0u8; partitions::PARTITION_TABLE_MAX_LEN]);
-    let mut updater = OtaUpdater::new(&mut storage, &mut scratch).map_err(UpdateError::Slots)?;
-    let slot = updater.selected_partition().map_err(UpdateError::Slots)?;
-    let state = updater
+    let table = partitions::read_partition_table(&mut storage, &mut scratch[..])
+        .map_err(UpdateError::Slots)?;
+    let ota_data =
+        find_raw(&table, RAW_TYPE_DATA, RAW_SUBTYPE_DATA_OTA).ok_or(UpdateError::OtaDataMissing)?;
+    let mut ota = Ota::new(ota_data.as_embedded_storage(&mut storage), OTA_SLOT_COUNT)
+        .map_err(UpdateError::Slots)?;
+    let slot = ota.current_app_partition().map_err(UpdateError::Slots)?;
+    let state = ota
         .current_ota_state()
         .map(state_name)
         .unwrap_or("undefined");
@@ -627,6 +696,7 @@ enum UpdateError {
     ImageTooLarge { image_len: usize, slot_len: usize },
     BodyTruncated { received: usize, expected: usize },
     SlotMissing { slot: AppPartitionSubType },
+    OtaDataMissing,
     SlotBelowIdentityHead { slot: AppPartitionSubType, offset: u32 },
     SlotOverlapsRouteJournal { slot: AppPartitionSubType, offset: u32, len: u32 },
     ReadbackMismatch,
@@ -637,9 +707,10 @@ impl UpdateError {
     fn http_status(&self) -> &'static str {
         match self {
             Self::KeyNotConfigured => "503 Service Unavailable",
-            Self::UpdateInProgress | Self::SignatureNotStaged | Self::SlotMissing { .. } => {
-                "409 Conflict"
-            }
+            Self::UpdateInProgress
+            | Self::SignatureNotStaged
+            | Self::SlotMissing { .. }
+            | Self::OtaDataMissing => "409 Conflict",
             Self::LengthRequired => "411 Length Required",
             Self::SignatureDocumentTooLarge { .. } | Self::ImageTooLarge { .. } => {
                 "413 Payload Too Large"
@@ -675,6 +746,7 @@ impl UpdateError {
             Self::ImageTooLarge { .. } => "image-too-large",
             Self::BodyTruncated { .. } => "body-truncated",
             Self::SlotMissing { .. } => "slot-missing",
+            Self::OtaDataMissing => "ota-data-missing",
             Self::SlotBelowIdentityHead { .. } => "slot-below-identity-head",
             Self::SlotOverlapsRouteJournal { .. } => "slot-overlaps-route-journal",
             Self::ReadbackMismatch => "readback-mismatch",
@@ -753,6 +825,12 @@ impl core::fmt::Display for UpdateError {
                     formatter,
                     "partition table has no {} slot; flash the A/B migration first",
                     slot_name(*slot)
+                )
+            }
+            Self::OtaDataMissing => {
+                write!(
+                    formatter,
+                    "partition table has no otadata slot; flash the A/B migration first"
                 )
             }
             Self::SlotBelowIdentityHead { slot, offset } => {
