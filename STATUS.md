@@ -1,11 +1,13 @@
 # T114 track status
 
-Branch `feat/t114-poc`, based on trunk `dd200ce`. Four commits, oldest first:
+Branch `feat/t114-poc`, based on trunk `dd200ce`. Five substantive commits, oldest first, plus
+the track-notes commits that carry this file:
 
 1. `Take UF2 bootloader identity from the board catalog instead of a constant`
 2. `Split the nRF52840 crate into a shared library and per-board packages`
 3. `Add the Heltec Mesh Node T114 board with a hand-written ST7789 driver`
 4. `Simplify the renamed CI step name`
+5. `Fix the T114 radio SPI: Spim::new takes sck, miso, mosi`
 
 Nothing on this branch has been compiled. The rules for this track forbid running cargo here;
 every claim below about "works" means "assembled and cross-checked by reading", and the build
@@ -34,6 +36,18 @@ cargo invocation gains `-p` from the catalog package field, `boards.json` rename
 `src/boards/heltec_t114.rs` board module with the verified pin map, `boards/heltec-t114`
 (`hopspot-heltec-t114`), the `ANIMATION_CLOCK` trait const, the `SPI3` interrupt binding, and a
 `lit: Level` parameter on the shared panel-light task.
+
+**Commit 5, the review fix.** `embassy_nrf::spim::Spim::new` takes its pins as sck, miso, mosi,
+in that order (checked against the embassy-nrf 0.10.0 docs). The T-Echo's deferred-pin fields
+were named mosi-then-miso but passed positionally, so every pin landed in the correct slot and
+the names were the lie: P0.23 fills the miso slot and is the SX1262's MISO, P0.29 fills the mosi
+slot and is the e-ink's SDI, exactly as the Meshtastic t-echo variant spells them. The T114
+board module named its fields truthfully from the pin map and copied the T-Echo call's visual
+order, which put MOSI P0.22 into the miso slot and MISO P0.23 into the mosi slot: a radio that
+can never answer, plus the SPIM driving P0.23 against the SX1262's own MISO output whenever NSS
+is low. The fix renames the T-Echo fields to the SPIM role each pin actually fills, with every
+pin kept in the same slot as before, and passes the T114's pins in the constructor's order.
+Every SPIM call site in both board files now reads sck, miso, mosi.
 
 ## Build commands, narrowest first
 
