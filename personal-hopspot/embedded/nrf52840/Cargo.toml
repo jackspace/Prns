@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Personal Hopspot nRF52840 firmware: drives the Personal Reticulum engine on bare metal under the S140 SoftDevice and renders the shared Hopspot screen through per-board panels. Boards: LilyGo T-Echo (200x200 SSD1681 e-ink)."
+description = "Personal Hopspot nRF52840 firmware: drives the Personal Reticulum engine on bare metal under the S140 SoftDevice and renders the shared Hopspot screen through per-board panels. Boards: LilyGo T-Echo (200x200 SSD1681 e-ink), Heltec Mesh Node T114 (240x135 ST7789 TFT)."
 
 [workspace]
-members = ["boards/t-echo"]
+members = ["boards/heltec-t114", "boards/t-echo"]
 resolver = "2"
 
 [lib]
