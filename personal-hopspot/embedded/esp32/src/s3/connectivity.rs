@@ -220,6 +220,15 @@ pub(super) fn build_wifi(
     // it takes `ap_mac`.
     #[cfg(feature = "wifi-auto")]
     if ap_enabled {
+        // The SSID suffix is randomised on every boot, on purpose, so that Wi-Fi never links to
+        // mesh identity. On a board with a screen the name is on the panel. On a screenless one it
+        // was nowhere at all, which makes the node's own access point undiscoverable by its owner.
+        // The console is the one place a headless node can still say it.
+        log::info!(
+            "wifi: access point up ssid={} host={}",
+            ap_ssid(),
+            CAPTIVE_PORTAL_HOST
+        );
         let mut ap_mac = mac;
         ap_mac[5] = ap_mac[5].wrapping_add(1);
         let ap_stack = build_ap_netif(spawner, interfaces.access_point, mac);

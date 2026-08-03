@@ -48,14 +48,19 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     let station_configured = wifi_config.has_station();
     #[cfg(not(feature = "wifi-auto"))]
     let station_configured = false;
-    let radio_mode = boot_radio_mode(station_configured);
+    #[cfg(feature = "wifi-auto")]
+    let provisioned_access_point = wifi_config.force_access_point;
+    #[cfg(not(feature = "wifi-auto"))]
+    let provisioned_access_point = false;
+    let radio_mode = boot_radio_mode(station_configured, provisioned_access_point);
     #[cfg(feature = "wifi-auto")]
     log::info!(
-        "wifi-config source={wifi_config_source:?} station={} ssid_len={} password_len={} tcp={}",
+        "wifi-config source={wifi_config_source:?} station={} ssid_len={} password_len={} tcp={} ap_requested={}",
         station_configured,
         wifi_config.ssid.len(),
         wifi_config.password.len(),
-        wifi_config.tcp_client.is_some()
+        wifi_config.tcp_client.is_some(),
+        provisioned_access_point
     );
 
     // Defer claiming USB-JTAG until after Wi-Fi bring-up so boot logs stay visible through radio init.

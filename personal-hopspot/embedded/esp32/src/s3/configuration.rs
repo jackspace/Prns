@@ -5,6 +5,7 @@ use super::*;
 pub(super) struct HopspotWifiConfig {
     pub(super) ssid: String,
     pub(super) password: String,
+    pub(super) force_access_point: bool,
     pub(super) tcp_client: Option<HopspotTcpClientConfig>,
 }
 
@@ -26,6 +27,7 @@ impl HopspotWifiConfig {
         Self {
             ssid: WIFI_SSID.to_string(),
             password: WIFI_PASSWORD.to_string(),
+            force_access_point: false,
             tcp_client: parse_tcp_client_target(HOPSPOT_TCP_TARGET),
         }
     }
@@ -94,9 +96,14 @@ fn parse_hopspot_config(bytes: &[u8]) -> Option<HopspotWifiConfig> {
         .ok()?
         .to_string();
     let tcp_client = parse_tcp_client(bytes);
+    // An erased byte reads 0xFF and an older slot reads 0x00; both mean "not requested".
+    let force_access_point = bytes
+        .get(HOPSPOT_CONFIG_RADIO_MODE_OFFSET)
+        .is_some_and(|mode| *mode == HOPSPOT_CONFIG_RADIO_MODE_ACCESS_POINT);
     Some(HopspotWifiConfig {
         ssid,
         password,
+        force_access_point,
         tcp_client,
     })
 }
