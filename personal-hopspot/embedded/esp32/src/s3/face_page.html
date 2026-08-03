@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hopspot face</title>
+<style>
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: #101418;
+    color: #8fb8c8;
+    font: 14px/1.5 ui-monospace, monospace;
+  }
+  canvas {
+    width: min(56vw, 288px);
+    image-rendering: pixelated;
+    background: #000;
+    border: 1px solid #2a3540;
+    border-radius: 4px;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  p { margin: 0; opacity: 0.75; }
+</style>
+<p>Hopspot face</p>
+<canvas id="face" width="64" height="128"></canvas>
+<p>tap: short press &middot; hold: long press</p>
+<script>
+"use strict";
+
+/* The wire format of /face/frame: 64x128 pixels, one bit per pixel, row-major
+   from the top-left, 8 pixels per byte, most significant bit leftmost. */
+const FRAME_WIDTH = 64;
+const FRAME_HEIGHT = 128;
+const FRAME_BYTES = FRAME_WIDTH * FRAME_HEIGHT / 8;
+
+/* Twice the device render cadence (500 ms), so a change is at most one poll late. */
+const FRAME_POLL_MS = 250;
+/* Mirrors the firmware long-press threshold. */
+const LONG_PRESS_MS = 500;
+const BUTTON_SHORT = 0;
+const BUTTON_LONG = 1;
+
+const canvas = document.getElementById("face");
+const context = canvas.getContext("2d");
+const image = context.createImageData(FRAME_WIDTH, FRAME_HEIGHT);
+
+function paint(bytes) {
+  if (bytes.length !== FRAME_BYTES) return;
+  const rgba = image.data;
+  for (let i = 0; i < FRAME_WIDTH * FRAME_HEIGHT; i++) {
+    const lit = (bytes[i >> 3] >> (7 - (i & 7))) & 1;
+    const offset = i * 4;
+    rgba[offset] = rgba[offset + 1] = rgba[offset + 2] = lit ? 255 : 0;
+    rgba[offset + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+}
+
+function poll() {
+  fetch("/face/frame", { cache: "no-store" })
+    .then((response) => (response.ok ? response.arrayBuffer() : null))
+    .then((buffer) => {
+      if (buffer) paint(new Uint8Array(buffer));
+    })
+    .catch(() => {})
+    .then(() => setTimeout(poll, FRAME_POLL_MS));
+}
+poll();
+
+function press(kind) {
+  fetch("/face/button", { method: "POST", body: new Uint8Array([kind]) })
+    .catch(() => {});
+}
+
+/* Mirror the physical button: a long press fires at the hold threshold, and the
+   release after it sends nothing more. */
+let holdTimer = null;
+canvas.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  holdTimer = setTimeout(() => {
+    holdTimer = null;
+    press(BUTTON_LONG);
+  }, LONG_PRESS_MS);
+});
+canvas.addEventListener("pointerup", (event) => {
+  event.preventDefault();
+  if (holdTimer === null) return;
+  clearTimeout(holdTimer);
+  holdTimer = null;
+  press(BUTTON_SHORT);
+});
+canvas.addEventListener("pointercancel", () => {
+  if (holdTimer === null) return;
+  clearTimeout(holdTimer);
+  holdTimer = null;
+});
+canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+</script>

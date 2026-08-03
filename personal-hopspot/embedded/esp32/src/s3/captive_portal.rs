@@ -477,6 +477,8 @@ async fn serve_site_connection<'a>(
     } else {
         if path == "/captive-portal/api" {
             send_captive_portal_api(socket, is_head).await
+        } else if path == "/face" {
+            send_face_page(socket, is_head).await
         } else if path == "/face/frame" {
             send_face_frame(socket, is_head).await
         } else if is_captive_probe_path(path) {
@@ -691,6 +693,29 @@ async fn send_face_button_response(
             content_type: "text/plain; charset=utf-8",
             body,
             head_only: false,
+        },
+    )
+    .await
+}
+
+/// The `/face` viewer: one self-contained page, inline styles and script, no
+/// external assets, served the same way as the rest of the portal.
+#[cfg(feature = "wifi-auto")]
+const FACE_PAGE_HTML: &[u8] = include_bytes!("face_page.html");
+
+#[cfg(feature = "wifi-auto")]
+async fn send_face_page(socket: &mut TcpSocket<'static>, head_only: bool) -> Result<(), ()> {
+    send_site_response(
+        socket,
+        SiteResponse {
+            status: "200 OK",
+            content_type: "text/html; charset=utf-8",
+            body: FACE_PAGE_HTML,
+            head_only,
+            content_encoding: None,
+            vary_accept_encoding: false,
+            cache_control: "no-cache",
+            content_disposition: None,
         },
     )
     .await
