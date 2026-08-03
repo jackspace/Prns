@@ -24,19 +24,27 @@ use personal_rns::crypto::{ed25519_verify, Ed25519PublicKey, Ed25519Signature};
 use super::captive_portal::tcp_write_all;
 use super::*;
 use crate::flash::EspRomFlash;
-use crate::persistence::S3_LAYOUT;
 
-/// The OTA writer's reach: the full 16 MiB chip of the Heltec V4 and V4-R8, the boards the A/B
-/// partition table targets. The identity vault instantiates `EspRomFlash<0xF000>` so its capacity
-/// bound protects the head sectors; this instance reaches past them, which is why every slot the
-/// writer touches is validated against the identity head and the route journal first.
-const OTA_FLASH_CAPACITY: usize = 16 * 1024 * 1024;
+/// The durable regions this writer must never land on, taken from the same constant the boards
+/// declare as their `FLASH_LAYOUT`, so the A/B table and the guard below cannot drift apart. The
+/// A/B table targets the 16 MiB boards, the Heltec V4 and V4-R8.
+const OTA_LAYOUT: screen::HopspotS3FlashLayout = screen::S3_16_MIB_FLASH_LAYOUT;
+
+/// The OTA writer's reach: the whole chip. The identity vault instantiates its own `EspRomFlash`
+/// bounded to the head sectors; this instance reaches past them, which is why every slot the
+/// writer touches is validated against the identity head, the radio profile and the route journal
+/// before a single byte is written.
+const OTA_FLASH_CAPACITY: usize = OTA_LAYOUT.flash_capacity;
 const FLASH_SECTOR_LEN: usize = 4096;
 /// App partitions live at or above this offset; everything below is bootloader, partition table,
 /// otadata, and the identity head that must survive every update.
 const APP_SLOT_FLOOR: u32 = 0x10000;
-const ROUTE_JOURNAL_START: u32 = S3_LAYOUT.timebase_regions[0];
-const ROUTE_JOURNAL_END: u32 = S3_LAYOUT.arenas[1].end;
+const ROUTE_JOURNAL_START: u32 = OTA_LAYOUT.journal.timebase_regions[0];
+const ROUTE_JOURNAL_END: u32 = OTA_LAYOUT.journal.arenas[1].end;
+/// The persisted LoRa profile, added upstream alongside the radio settings store. It sits directly
+/// below the journal and an app slot must not reach it either.
+const RADIO_PROFILE_START: u32 = OTA_LAYOUT.radio_profile_pages[0];
+const RADIO_PROFILE_END: u32 = OTA_LAYOUT.radio_profile_pages[1] + FLASH_SECTOR_LEN as u32;
 /// First byte of every ESP-IDF application image.
 const ESP_IMAGE_MAGIC: u8 = 0xE9;
 const IMAGE_MIN_LEN: usize = FLASH_SECTOR_LEN;
@@ -206,7 +214,7 @@ async fn install_image(
 
     let mut merge = alloc::vec![0u8; FLASH_SECTOR_LEN];
     let mut storage = RmwNorFlashStorage::new(
-        EspRomFlash::<OTA_FLASH_CAPACITY>::new(),
+        EspRomFlash::new(OTA_FLASH_CAPACITY),
         merge.as_mut_slice(),
     );
     let mut scratch = Box::new([0u8; partitions::PARTITION_TABLE_MAX_LEN]);
@@ -537,6 +545,12 @@ fn validated_slot<'a>(
     if offset < ROUTE_JOURNAL_END && end > ROUTE_JOURNAL_START {
         return Err(UpdateError::SlotOverlapsRouteJournal { slot, offset, len });
     }
+    // The persisted radio profile sits directly below the journal. A slot that reached it would
+    // silently drop the node back to the compiled default channel on the next boot, which is the
+    // exact failure the settings store was added to end.
+    if offset < RADIO_PROFILE_END && end > RADIO_PROFILE_START {
+        return Err(UpdateError::SlotOverlapsRadioProfile { slot, offset, len });
+    }
     Ok(entry)
 }
 
@@ -593,7 +607,7 @@ pub(super) async fn ota_health_task() {
 fn mark_running_slot_valid() -> Result<SlotHealth, UpdateError> {
     let mut merge = alloc::vec![0u8; FLASH_SECTOR_LEN];
     let mut storage = RmwNorFlashStorage::new(
-        EspRomFlash::<OTA_FLASH_CAPACITY>::new(),
+        EspRomFlash::new(OTA_FLASH_CAPACITY),
         merge.as_mut_slice(),
     );
     let mut scratch = Box::new([0u8; partitions::PARTITION_TABLE_MAX_LEN]);
@@ -656,7 +670,7 @@ fn status_json() -> String {
 fn read_slot_status() -> Result<(&'static str, &'static str), UpdateError> {
     let mut merge = alloc::vec![0u8; FLASH_SECTOR_LEN];
     let mut storage = RmwNorFlashStorage::new(
-        EspRomFlash::<OTA_FLASH_CAPACITY>::new(),
+        EspRomFlash::new(OTA_FLASH_CAPACITY),
         merge.as_mut_slice(),
     );
     let mut scratch = Box::new([0u8; partitions::PARTITION_TABLE_MAX_LEN]);
@@ -713,6 +727,7 @@ enum UpdateError {
     OtaDataMissing,
     SlotBelowIdentityHead { slot: AppPartitionSubType, offset: u32 },
     SlotOverlapsRouteJournal { slot: AppPartitionSubType, offset: u32, len: u32 },
+    SlotOverlapsRadioProfile { slot: AppPartitionSubType, offset: u32, len: u32 },
     ReadbackMismatch,
     Slots(partitions::Error),
 }
@@ -738,6 +753,7 @@ impl UpdateError {
             Self::SignatureRejected | Self::TrustedCommentRejected => "403 Forbidden",
             Self::SlotBelowIdentityHead { .. }
             | Self::SlotOverlapsRouteJournal { .. }
+            | Self::SlotOverlapsRadioProfile { .. }
             | Self::ReadbackMismatch
             | Self::Slots(_) => "500 Internal Server Error",
         }
@@ -763,6 +779,7 @@ impl UpdateError {
             Self::OtaDataMissing => "ota-data-missing",
             Self::SlotBelowIdentityHead { .. } => "slot-below-identity-head",
             Self::SlotOverlapsRouteJournal { .. } => "slot-overlaps-route-journal",
+            Self::SlotOverlapsRadioProfile { .. } => "slot-overlaps-radio-profile",
             Self::ReadbackMismatch => "readback-mismatch",
             Self::Slots(_) => "ota-partition-access",
         }
@@ -858,6 +875,13 @@ impl core::fmt::Display for UpdateError {
                 write!(
                     formatter,
                     "{} at 0x{offset:X}+0x{len:X} overlaps the route journal",
+                    slot_name(*slot)
+                )
+            }
+            Self::SlotOverlapsRadioProfile { slot, offset, len } => {
+                write!(
+                    formatter,
+                    "{} at 0x{offset:X}+0x{len:X} overlaps the radio profile",
                     slot_name(*slot)
                 )
             }
