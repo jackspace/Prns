@@ -11,6 +11,7 @@ mod identity;
 mod mobile;
 pub mod node_pages;
 mod screen;
+mod telemetry;
 
 pub use battery::{BatteryGauge, BatteryPercent, BatterySource, BatteryState, NoBattery};
 pub use destinations::{HopspotDestinationHashes, HopspotDestinationSet};
@@ -37,6 +38,10 @@ pub use screen::{
     InputEvent, InterfaceMenuDetails, Liveness, LoRaSpectrumMenuDetails, LocalDocsAccess,
     RenderFrame, ScreenContent, SplashContent, UiAction, UiConfiguration, UiNotice, UiState,
     WifiNetworkStatus,
+};
+pub use telemetry::{
+    delivery_app_data_with_telemetry, TelemetryAppDataError, TelemetryReading,
+    TELEMETRY_FORMAT_VERSION,
 };
 
 use personal_rns::interfaces::{ConnectionState, InterfaceId, InterfaceSnapshot, Membership};
