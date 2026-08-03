@@ -1143,6 +1143,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hopspot-heltec-t114"
+version = "0.1.0"
+dependencies = [
+ "cortex-m-rt",
+ "embassy-executor",
+ "panic-halt",
+ "personal-hopspot-nrf52840",
+]
+
+[[package]]
 name = "hopspot-t-echo"
 version = "0.1.0"
 dependencies = [

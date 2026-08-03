@@ -25,6 +25,7 @@ use personal_rns::radios::sx126x::Sx126x;
 bind_interrupts!(pub(crate) struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;
     SPI2 => spim::InterruptHandler<peripherals::SPI2>;
+    SPI3 => spim::InterruptHandler<peripherals::SPI3>;
     TWISPI0 => spim::InterruptHandler<peripherals::TWISPI0>;
     SAADC => saadc::InterruptHandler;
 });
@@ -41,6 +42,23 @@ pub(crate) type Radio =
 /// below so a BLE radio event can preempt them.
 const DRIVER_INTERRUPT_PRIORITY: Priority = Priority::P2;
 const BUS_INTERRUPT_PRIORITY: Priority = Priority::P3;
+
+/// Whether this board's panel can afford a moving picture. E-ink pays a panel refresh for every
+/// changed pixel, so it pins the clock and its charge glyph never blinks; a backlit panel redraws
+/// for free and looks broken when nothing ever moves.
+pub(crate) enum AnimationClock {
+    Still,
+    Running,
+}
+
+impl AnimationClock {
+    pub(crate) const fn millis(&self, now_ms: u64) -> u64 {
+        match self {
+            Self::Still => 0,
+            Self::Running => now_ms,
+        }
+    }
+}
 
 pub(crate) struct UsbHardware {
     pub(crate) driver: Driver<'static, &'static SoftwareVbusDetect>,
@@ -75,6 +93,10 @@ pub(crate) fn platform_config() -> config::Config {
 pub(crate) fn apply_interrupt_priorities() {
     interrupt::USBD.set_priority(DRIVER_INTERRUPT_PRIORITY);
     interrupt::SPI2.set_priority(BUS_INTERRUPT_PRIORITY);
+    // SPIM3 is the only instance on this part that runs above 8 MHz; a board with a fast panel
+    // puts that panel here. A binding for an instance a board never starts costs a vector table
+    // entry and nothing else.
+    interrupt::SPI3.set_priority(BUS_INTERRUPT_PRIORITY);
     interrupt::TWISPI0.set_priority(BUS_INTERRUPT_PRIORITY);
     interrupt::SAADC.set_priority(BUS_INTERRUPT_PRIORITY);
 }
@@ -111,6 +133,7 @@ pub(crate) trait Nrf52840Board {
     const USB_INTERFACE_ID: InterfaceId;
     const USB_PRODUCT: &'static str;
     const USB_SERIAL_NUMBER: &'static str;
+    const ANIMATION_CLOCK: AnimationClock;
 
     type Battery;
     type Deferred;

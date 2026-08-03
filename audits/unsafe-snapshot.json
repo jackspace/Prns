@@ -8756,6 +8756,21 @@
     },
     {
       "graphs": {
+        "nrf52840": []
+      },
+      "name": "hopspot-heltec-t114",
+      "source": "personal-hopspot/embedded/nrf52840/boards/heltec-t114",
+      "unsafe": {
+        "blocks": 0,
+        "externs": 0,
+        "functions": 0,
+        "impls": 0,
+        "tokens": 0
+      },
+      "version": "0.1.0"
+    },
+    {
+      "graphs": {
         "esp32-s3-heltec": [
           "default"
         ]

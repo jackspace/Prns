@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod boards;
+pub mod panels;
 
 mod bluetooth_auto;
 mod board;
@@ -9,6 +10,5 @@ mod firmware;
 mod identity;
 mod input;
 mod node;
-mod panels;
 mod persistence;
 mod storage;

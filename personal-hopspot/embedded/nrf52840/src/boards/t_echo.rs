@@ -23,7 +23,9 @@ use personal_hopspot_core as hopspot;
 use personal_rns::interfaces::InterfaceId;
 use personal_rns::radios::sx126x::{BoardConfig, Sx126x, TcxoVoltage};
 
-use crate::board::{self, EarlyHardware, ExclusiveSpi, Irqs, Nrf52840Board, RuntimeHardware};
+use crate::board::{
+    self, AnimationClock, EarlyHardware, ExclusiveSpi, Irqs, Nrf52840Board, RuntimeHardware,
+};
 use crate::display::frame_hash;
 use crate::input;
 use crate::panels::ssd1681::Ssd1681;
@@ -145,6 +147,7 @@ impl Nrf52840Board for TechoBoard {
     const USB_INTERFACE_ID: InterfaceId = USB_INTERFACE_ID;
     const USB_PRODUCT: &'static str = "Personal Hopspot (T-Echo)";
     const USB_SERIAL_NUMBER: &'static str = "PERSONAL-RNS-TECHO-HOP";
+    const ANIMATION_CLOCK: AnimationClock = AnimationClock::Still;
 
     type Battery = Saadc<'static, 1>;
     type Deferred = TechoDeferredHardware;
@@ -308,7 +311,7 @@ impl Nrf52840Board for TechoBoard {
     }
 
     async fn drive_illumination(frontlight: Self::Illumination) -> ! {
-        input::drive_panel_light(frontlight, FRONTLIGHT_HOLD).await
+        input::drive_panel_light(frontlight, Level::High, FRONTLIGHT_HOLD).await
     }
 }
 

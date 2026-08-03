@@ -42,7 +42,6 @@ use crate::input;
 use crate::node::*;
 
 const STATS_POLL: Duration = Duration::from_secs(1);
-const EINK_ANIMATION_MS: u64 = 0;
 const NOTICE_MS: u64 = 900;
 
 #[embassy_executor::task]
@@ -349,7 +348,7 @@ pub(crate) async fn run<B: Nrf52840Board>(spawner: Spawner) -> ! {
                     battery,
                     state: &ui_state,
                     interface_menu_details: &interface_menu_details,
-                    animation_ms: EINK_ANIMATION_MS,
+                    animation_ms: B::ANIMATION_CLOCK.millis(now_ms),
                 },
             );
             B::present(&mut display, now_ms, &refresh_urgency);
