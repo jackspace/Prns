@@ -384,8 +384,12 @@ fn dns_question_end(req: &[u8]) -> Option<(usize, u16)> {
 #[cfg(feature = "wifi-auto")]
 const UPLOAD_RX_WINDOW: usize = 16 * 1024;
 /// Long enough to outlast one flash sector erase plus write under radio load, with margin.
+///
+/// Generous on purpose. A firmware upload over a poor link has been measured at a few KB/s on
+/// this bench, so a whole image can legitimately take minutes, and a timeout that fires mid
+/// transfer looks exactly like a device fault when it is really a slow radio.
 #[cfg(feature = "wifi-auto")]
-const HTTP_SOCKET_TIMEOUT: Duration = Duration::from_secs(60);
+const HTTP_SOCKET_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[cfg(feature = "wifi-auto")]
 const CAPTIVE_PORTAL_PAGE: &[u8] = include_bytes!("../../assets/captive-portal.html");
