@@ -25,11 +25,6 @@ use crate::s3::{
 /// This board's USB-auto interface id (the always-present top-level wire on pool slot 0).
 const USB_INTERFACE_ID: InterfaceId = InterfaceId::new(*b"tbeamsup");
 
-/// This node's `lxmf.delivery` announce app_data: `msgpack([display_name, stamp_cost])`
-/// = `fixarray(2)` ‖ `bin8("Personal Hopspot T-Beam Supreme")` ‖ `nil`, the shape LXMF apps parse.
-const ANNOUNCE_APP_DATA: &[u8] = b"\x92\xc4\x1fPersonal Hopspot T-Beam Supreme\xc0";
-const NODE_ANNOUNCE_APP_DATA: &[u8] = b"Personal Hopspot T-Beam Supreme";
-
 /// The AXP2101 PMU (I2C1 on SDA 42 / SCL 41). On the T-Beam S3 Supreme the SX1262, the GPS, and the
 /// OLED+sensor bus all sit behind PMU LDO rails that boot OFF, so the radio is dead until these are
 /// enabled: ALDO3 → LoRa, ALDO1 + ALDO2 → OLED/sensor bus. Registers per the AXP2101 datasheet
@@ -238,8 +233,7 @@ type TBeamI2c = I2c<'static, esp_hal::Blocking>;
 pub struct TBeamSupremeBoard;
 
 impl Esp32S3Board for TBeamSupremeBoard {
-    const ANNOUNCE_APP_DATA: &'static [u8] = ANNOUNCE_APP_DATA;
-    const NODE_ANNOUNCE_APP_DATA: &'static [u8] = NODE_ANNOUNCE_APP_DATA;
+    const NODE_BASE_NAME: &'static str = "Hopspot";
     const BOOT_BANNER: &'static str = "HOPSPOT_TBEAM_SUPREME";
     const USB_INTERFACE_ID: InterfaceId = USB_INTERFACE_ID;
     type Display = Sh1106I2c<TBeamI2c>;

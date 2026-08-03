@@ -44,8 +44,9 @@ pub(crate) struct S3BoardHardware<D, B> {
 
 #[allow(async_fn_in_trait)]
 pub(crate) trait Esp32S3Board {
-    const ANNOUNCE_APP_DATA: &'static [u8];
-    const NODE_ANNOUNCE_APP_DATA: &'static [u8];
+    /// Base of the boot-derived display name; the resolved node name is this plus the first four
+    /// hex chars of the delivery destination hash, unless a hopcfg override names the node itself.
+    const NODE_BASE_NAME: &'static str;
     const BOOT_BANNER: &'static str;
     const USB_INTERFACE_ID: InterfaceId;
     type Display: DrawTarget<Color = BinaryColor>;

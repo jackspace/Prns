@@ -138,7 +138,8 @@ const HOPSPOT_CONFIG_MAGIC: &[u8; 8] = b"HSPCFG1\0";
 #[cfg(feature = "wifi-auto")]
 const HOPSPOT_CONFIG_VERSION: u8 = 1;
 #[cfg(feature = "wifi-auto")]
-const HOPSPOT_CONFIG_READ_WORDS: usize = 92;
+const HOPSPOT_CONFIG_READ_WORDS: usize =
+    (HOPSPOT_CONFIG_NODE_NAME_OFFSET + HOPSPOT_CONFIG_NODE_NAME_MAX + 3) / 4;
 #[cfg(feature = "wifi-auto")]
 const HOPSPOT_CONFIG_SSID_MAX: usize = 32;
 #[cfg(feature = "wifi-auto")]
@@ -154,6 +155,13 @@ const HOPSPOT_CONFIG_TCP_PORT_OFFSET: usize = HOPSPOT_CONFIG_TCP_HOST_LENGTH_OFF
 const HOPSPOT_CONFIG_TCP_TARGET_OFFSET: usize = HOPSPOT_CONFIG_TCP_PORT_OFFSET + 2;
 #[cfg(feature = "wifi-auto")]
 const HOPSPOT_CONFIG_TCP_HOSTNAME_MAX: usize = 253;
+#[cfg(feature = "wifi-auto")]
+const HOPSPOT_CONFIG_NODE_NAME_LENGTH_OFFSET: usize =
+    HOPSPOT_CONFIG_TCP_TARGET_OFFSET + HOPSPOT_CONFIG_TCP_HOSTNAME_MAX;
+#[cfg(feature = "wifi-auto")]
+const HOPSPOT_CONFIG_NODE_NAME_OFFSET: usize = HOPSPOT_CONFIG_NODE_NAME_LENGTH_OFFSET + 1;
+#[cfg(feature = "wifi-auto")]
+const HOPSPOT_CONFIG_NODE_NAME_MAX: usize = screen::NODE_NAME_MAX_BYTES;
 #[cfg(feature = "wifi-auto")]
 const HOPSPOT_TCP_DEFAULT_PORT: u16 = 4242;
 

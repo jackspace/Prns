@@ -134,14 +134,35 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     let node_identity = node_bootstrap.into_identity();
     let transport_secret = node_identity.transport_secret();
     let destination_secret = node_identity.into_destination_secret();
+    let destination_hashes =
+        personal_hopspot_core::HopspotDestinationHashes::derive(&destination_secret)
+            .expect("the hopspot destination names are valid");
+    #[cfg(feature = "wifi-auto")]
+    let configured_name = wifi_config.node_name.as_deref();
+    #[cfg(not(feature = "wifi-auto"))]
+    let configured_name: Option<&str> = None;
+    let node_name: &'static screen::NodeName = mk_static!(
+        screen::NodeName,
+        screen::resolve_node_name(
+            configured_name,
+            B::NODE_BASE_NAME,
+            &destination_hashes.delivery
+        )
+    );
+    let delivery_hex: &'static screen::DestinationHex = mk_static!(
+        screen::DestinationHex,
+        screen::destination_hex(&destination_hashes.delivery)
+    );
+    log::info!("node-identity name={node_name} delivery={delivery_hex}");
+    let delivery_announce_app_data: &'static screen::DeliveryAnnounceAppData = mk_static!(
+        screen::DeliveryAnnounceAppData,
+        screen::delivery_announce_app_data(node_name)
+    );
     let destinations = personal_hopspot_core::HopspotDestinationSet::new(
         destination_secret,
-        B::ANNOUNCE_APP_DATA,
-        B::NODE_ANNOUNCE_APP_DATA,
+        delivery_announce_app_data.as_slice(),
+        node_name.as_bytes(),
     );
-    let destination_hashes = destinations
-        .destination_hashes()
-        .expect("the hopspot destination names are valid");
     let self_destination = destination_hashes.delivery;
     let node_page_destination = destination_hashes.node_page;
     let ble_identity = Some(ble_bootstrap.into_identity());
@@ -316,6 +337,10 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         Option<&'static EmbassyInterfaceStatus>,
     ) = (None, None);
 
+    let identity_card = screen::NodeIdentityCard {
+        name: node_name.as_str(),
+        delivery_hex: delivery_hex.as_str(),
+    };
     let render = async move {
         boot_stage(BootPhase::DisplayRuntimeBegin);
         let access_point = if !cfg!(feature = "wifi-auto") {
@@ -393,7 +418,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
             activity.update(&mut cards, activity_secs);
             let content = screen::ScreenContent {
                 cards: &cards,
-                node_identity: None,
+                node_identity: Some(&identity_card),
                 local_docs: local_docs.as_ref(),
             };
             #[cfg(feature = "wifi-auto")]

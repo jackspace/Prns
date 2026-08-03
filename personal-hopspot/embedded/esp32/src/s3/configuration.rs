@@ -6,6 +6,8 @@ pub(super) struct HopspotWifiConfig {
     pub(super) ssid: String,
     pub(super) password: String,
     pub(super) tcp_client: Option<HopspotTcpClientConfig>,
+    /// Owner-chosen node display name; `None` means the boot derives one from the delivery hash.
+    pub(super) node_name: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -27,6 +29,7 @@ impl HopspotWifiConfig {
             ssid: WIFI_SSID.to_string(),
             password: WIFI_PASSWORD.to_string(),
             tcp_client: parse_tcp_client_target(HOPSPOT_TCP_TARGET),
+            node_name: None,
         }
     }
 
@@ -94,11 +97,28 @@ fn parse_hopspot_config(bytes: &[u8]) -> Option<HopspotWifiConfig> {
         .ok()?
         .to_string();
     let tcp_client = parse_tcp_client(bytes);
+    let node_name = parse_node_name(bytes);
     Some(HopspotWifiConfig {
         ssid,
         password,
         tcp_client,
+        node_name,
     })
+}
+
+/// Length 0 means no override; the erased 0xFF (a slot written before the field existed) and any
+/// oversize or non-UTF-8 value read the same way, so a stale byte can never rename a node.
+#[cfg(feature = "wifi-auto")]
+fn parse_node_name(bytes: &[u8]) -> Option<String> {
+    let len = *bytes.get(HOPSPOT_CONFIG_NODE_NAME_LENGTH_OFFSET)? as usize;
+    if len == 0 || len > HOPSPOT_CONFIG_NODE_NAME_MAX {
+        return None;
+    }
+    let name = core::str::from_utf8(
+        bytes.get(HOPSPOT_CONFIG_NODE_NAME_OFFSET..HOPSPOT_CONFIG_NODE_NAME_OFFSET + len)?,
+    )
+    .ok()?;
+    (!name.chars().any(char::is_control)).then(|| name.to_string())
 }
 
 #[cfg(feature = "wifi-auto")]

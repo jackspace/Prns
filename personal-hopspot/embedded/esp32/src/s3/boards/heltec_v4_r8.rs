@@ -24,11 +24,6 @@ use crate::s3::{
 /// This board's USB-auto interface id (the always-present top-level wire on pool slot 0).
 const USB_INTERFACE_ID: InterfaceId = InterfaceId::new(*b"heltecr8");
 
-/// This node's `lxmf.delivery` announce app_data: `msgpack([display_name, stamp_cost])`
-/// = `fixarray(2)` ‖ `bin8("Personal Hopspot HeltecV4-R8")` ‖ `nil`, the shape LXMF apps parse.
-const ANNOUNCE_APP_DATA: &[u8] = b"\x92\xc4\x1cPersonal Hopspot HeltecV4-R8\xc0";
-const NODE_ANNOUNCE_APP_DATA: &[u8] = b"Personal Hopspot HeltecV4-R8";
-
 const VBAT_DIVIDER_NUM: u32 = 49;
 const VBAT_DIVIDER_DEN: u32 = 10;
 
@@ -93,8 +88,7 @@ type HeltecDisplay = Ssd1306<
 pub struct HeltecV4R8Board;
 
 impl Esp32S3Board for HeltecV4R8Board {
-    const ANNOUNCE_APP_DATA: &'static [u8] = ANNOUNCE_APP_DATA;
-    const NODE_ANNOUNCE_APP_DATA: &'static [u8] = NODE_ANNOUNCE_APP_DATA;
+    const NODE_BASE_NAME: &'static str = "Hopspot";
     const BOOT_BANNER: &'static str = "HOPSPOT_HELTECV4_R8";
     const USB_INTERFACE_ID: InterfaceId = USB_INTERFACE_ID;
     type Display = HeltecDisplay;
