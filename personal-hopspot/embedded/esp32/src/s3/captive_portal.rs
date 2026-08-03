@@ -1,5 +1,7 @@
 #[cfg(feature = "wifi-auto")]
 use super::connectivity::net_task;
+#[cfg(feature = "wifi-auto")]
+use super::update;
 use super::*;
 
 /// A random per-boot SoftAP SSID suffix, cached so every `set_config` within a boot reuses the same
@@ -351,6 +353,15 @@ async fn serve_site_connection(
     let method = parts.next().unwrap_or("");
     let raw_path = parts.next().unwrap_or("/");
     let is_head = method == "HEAD";
+    let path = normalize_http_path(raw_path);
+    if let Some(route) = update::route(method, path) {
+        let framing = update::BodyFraming {
+            body_start: header_len,
+            buffered_len: len,
+            content_length: request_content_length(request),
+        };
+        return update::serve(socket, request_buffer, framing, route).await;
+    }
     if method != "GET" && !is_head {
         return send_site_response(
             socket,
@@ -368,7 +379,6 @@ async fn serve_site_connection(
         .await;
     }
 
-    let path = normalize_http_path(raw_path);
     if path == "/captive-portal/api" {
         return send_captive_portal_api(socket, is_head).await;
     }
@@ -486,6 +496,17 @@ fn http_body_start(bytes: &[u8]) -> Option<usize> {
         .windows(2)
         .position(|window| window == b"\n\n")
         .map(|at| at + 2)
+}
+
+#[cfg(feature = "wifi-auto")]
+fn request_content_length(request: &str) -> Option<usize> {
+    request.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if !name.trim().eq_ignore_ascii_case("content-length") {
+            return None;
+        }
+        value.trim().parse().ok()
+    })
 }
 
 #[cfg(feature = "wifi-auto")]
