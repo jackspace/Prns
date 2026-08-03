@@ -9,8 +9,8 @@ mod state;
 pub use eink::{EinkRefresh, EinkRefreshPolicy, EinkRefreshUrgency};
 pub use model::{
     card_label, tcp_card_label, Card, CardActivityTracker, CardKind, CardLabel,
-    InterfaceMenuDetails, Liveness, LoRaSpectrumMenuDetails, LocalDocsAccess, ScreenContent,
-    WifiNetworkStatus,
+    InterfaceMenuDetails, Liveness, LoRaSpectrumMenuDetails, LocalDocsAccess, NodeIdentityCard,
+    ScreenContent, WifiNetworkStatus,
 };
 pub(crate) use model::{liveness_from_connection, sort_cards_for_display};
 pub use render::{render, splash, RenderFrame, SplashContent};

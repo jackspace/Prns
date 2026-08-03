@@ -8,32 +8,32 @@ fn short_press_cycles_global_then_cards_and_pages_visible_window() {
     state.sync(content);
 
     assert!(state.global_selected());
-    assert_eq!(state.selected_card_index(5), None);
+    assert_eq!(state.selected_card_index(content), None);
     assert_eq!(state.visible_start, 0);
 
     state.handle_input(InputEvent::ShortPress, content);
-    assert_eq!(state.selected_card_index(5), Some(0));
+    assert_eq!(state.selected_card_index(content), Some(0));
     assert_eq!(state.visible_start, 0);
 
     state.handle_input(InputEvent::ShortPress, content);
-    assert_eq!(state.selected_card_index(5), Some(1));
+    assert_eq!(state.selected_card_index(content), Some(1));
     assert_eq!(state.visible_start, 0);
 
     state.handle_input(InputEvent::ShortPress, content);
-    assert_eq!(state.selected_card_index(5), Some(2));
+    assert_eq!(state.selected_card_index(content), Some(2));
     assert_eq!(state.visible_start, 2);
 
     state.handle_input(InputEvent::ShortPress, content);
-    assert_eq!(state.selected_card_index(5), Some(3));
+    assert_eq!(state.selected_card_index(content), Some(3));
     assert_eq!(state.visible_start, 3);
 
     state.handle_input(InputEvent::ShortPress, content);
-    assert_eq!(state.selected_card_index(5), Some(4));
+    assert_eq!(state.selected_card_index(content), Some(4));
     assert_eq!(state.visible_start, 4);
 
     state.handle_input(InputEvent::ShortPress, content);
     assert!(state.global_selected());
-    assert_eq!(state.selected_card_index(5), None);
+    assert_eq!(state.selected_card_index(content), None);
     assert_eq!(state.visible_start, 0);
 }
 
@@ -45,13 +45,13 @@ fn long_press_opens_global_menu_and_short_press_cycles_menu_items() {
 
     state.handle_input(InputEvent::LongPress, content);
 
-    assert_eq!(state.selected_card_index(4), None);
+    assert_eq!(state.selected_card_index(content), None);
     assert_eq!(state.visible_start, 0);
     assert_eq!(state.global_menu_selected_item(), Some(0));
 
     state.handle_input(InputEvent::ShortPress, content);
 
-    assert_eq!(state.selected_card_index(4), None);
+    assert_eq!(state.selected_card_index(content), None);
     assert_eq!(state.global_menu_selected_item(), Some(1));
 
     state.handle_input(InputEvent::ShortPress, content);
@@ -259,6 +259,46 @@ fn lora_interface_menu_keeps_tune_and_reset() {
 }
 
 #[test]
+fn home_card_sits_between_global_row_and_first_interface_card() {
+    let cards = test_cards::<2>(CardKind::Usb);
+    let identity = test_identity();
+    let local_docs = LocalDocsAccess {
+        wifi_ssid: "Hopspot-EW53",
+        docs_host: "192.168.4.1",
+    };
+    let content = ScreenContent {
+        cards: &cards,
+        node_identity: Some(&identity),
+        local_docs: Some(&local_docs),
+    };
+    let mut state = test_ui_state();
+    state.sync(content);
+
+    assert!(state.global_selected());
+    state.handle_input(InputEvent::ShortPress, content);
+    assert!(state.home_selected(content));
+    assert_eq!(state.selected_card_index(content), None);
+
+    assert_eq!(
+        state.handle_input(InputEvent::LongPress, content),
+        UiAction::None
+    );
+    assert_eq!(state.interface_menu_selected_item(), None);
+
+    state.handle_input(InputEvent::ShortPress, content);
+    assert_eq!(state.selected_card_index(content), Some(0));
+    state.handle_input(InputEvent::ShortPress, content);
+    assert_eq!(state.selected_card_index(content), Some(1));
+
+    state.handle_input(InputEvent::ShortPress, content);
+    assert_eq!(state.selected_card_index(content), None);
+    assert_eq!(
+        state.handle_input(InputEvent::LongPress, content),
+        UiAction::OpenDocs
+    );
+}
+
+#[test]
 fn long_press_opens_interface_menu_after_card_focus() {
     let cards = test_cards::<4>(CardKind::Usb);
     let content = test_content(&cards);
@@ -267,16 +307,16 @@ fn long_press_opens_interface_menu_after_card_focus() {
 
     state.handle_input(InputEvent::LongPress, content);
 
-    assert_eq!(state.selected_card_index(4), Some(0));
+    assert_eq!(state.selected_card_index(content), Some(0));
     assert_eq!(state.visible_start, 0);
     assert_eq!(state.interface_menu_selected_item(), Some(0));
 
     state.handle_input(InputEvent::ShortPress, content);
 
-    assert_eq!(state.selected_card_index(4), Some(0));
+    assert_eq!(state.selected_card_index(content), Some(0));
     assert_eq!(state.interface_menu_selected_item(), Some(1));
 
     state.handle_input(InputEvent::LongPress, content);
 
-    assert_eq!(state.selected_card_index(4), Some(0));
+    assert_eq!(state.selected_card_index(content), Some(0));
 }

@@ -114,7 +114,7 @@ fn finish_press(
 }
 
 fn selected_card_id(ui_state: &UiState, content: ScreenContent<'_, '_>) -> Option<InterfaceId> {
-    ui_state.selected_card(content.cards).map(|card| card.id())
+    ui_state.selected_card(content).map(|card| card.id())
 }
 
 struct LoggedStatus {
@@ -667,6 +667,7 @@ pub(super) fn run_window(handles: WindowHandles) {
     loop {
         let content = ScreenContent {
             cards: &cards,
+            node_identity: None,
             local_docs: None,
         };
         if let Some(tray) = tray.as_mut() {
@@ -825,11 +826,12 @@ pub(super) fn run_window(handles: WindowHandles) {
             activity.update(&mut cards, activity_secs);
             let content = ScreenContent {
                 cards: &cards,
+                node_identity: None,
                 local_docs: None,
             };
             ui_state.sync(content);
             let interface_menu_details = screen::snapshots_to_interface_menu_details(
-                ui_state.selected_card(content.cards),
+                ui_state.selected_card(content),
                 &snapshots,
             );
             let battery = screen::BatteryGauge::lipo().sample(&mut screen::NoBattery);
@@ -882,6 +884,7 @@ mod tests {
     fn test_content(cards: &[Card]) -> ScreenContent<'_, 'static> {
         ScreenContent {
             cards,
+            node_identity: None,
             local_docs: None,
         }
     }
@@ -907,7 +910,7 @@ mod tests {
         );
 
         assert!(active_press.is_none());
-        assert!(ui_state.selected_card(content.cards).is_some());
+        assert!(ui_state.selected_card(content).is_some());
     }
 
     #[test]

@@ -4,8 +4,9 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Baseline, Text};
+use heapless::String as HString;
 
-use crate::screen::{Card, CardKind, Liveness, LocalDocsAccess};
+use crate::screen::{Card, CardKind, Liveness, LocalDocsAccess, NodeIdentityCard};
 
 use super::glyphs::{
     draw_arrow, draw_clock, draw_global_icon, draw_interface_icon, draw_link, draw_offline_icon,
@@ -144,6 +145,53 @@ pub(in crate::screen) fn draw_card_with_selection<D: DrawTarget<Color = BinaryCo
         Point::new(ACTIVITY_TEXT_X, live_y),
         BinaryColor::On,
     );
+}
+
+/// The home card: this node's own name over its full delivery address, wrapped across lines so all
+/// 32 hex chars are on screen. Same border and slot height as an interface card; the name inverts
+/// on selection the way the footer does.
+pub(in crate::screen) fn draw_home_card<D: DrawTarget<Color = BinaryColor>>(
+    display: &mut D,
+    top: i32,
+    identity: &NodeIdentityCard<'_>,
+    selected: bool,
+) {
+    let _ = Rectangle::new(Point::new(0, top), Size::new(WIDTH as u32, CARD_H as u32))
+        .into_styled(stroke(BinaryColor::On))
+        .draw(display);
+
+    draw_footer_line(
+        display,
+        identity.name,
+        top + HOME_NAME_Y,
+        &FONT_5X8,
+        FONT_5X8_CHAR_W,
+        selected,
+    );
+
+    let address_style = MonoTextStyle::new(&FONT_5X8, BinaryColor::On);
+    let mut chars = identity.delivery_hex.chars();
+    let mut y = top + HOME_ADDRESS_TOP;
+    loop {
+        let mut line: HString<HOME_ADDRESS_LINE_CHARS> = HString::new();
+        for c in chars.by_ref().take(HOME_ADDRESS_LINE_CHARS) {
+            let _ = line.push(c);
+        }
+        if line.is_empty() {
+            break;
+        }
+        let _ = Text::with_baseline(
+            &line,
+            Point::new(HOME_ADDRESS_X, y),
+            address_style,
+            Baseline::Top,
+        )
+        .draw(display);
+        y += HOME_ADDRESS_LINE_STEP;
+        if y + HOME_ADDRESS_LINE_STEP > top + CARD_H {
+            break;
+        }
+    }
 }
 
 pub(super) fn draw_card_peek<D: DrawTarget<Color = BinaryColor>>(

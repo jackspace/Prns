@@ -15,8 +15,8 @@ use crate::battery::BatteryState;
 
 use super::limits::build_limit_rows;
 use super::model::{InterfaceMenuDetails, ScreenContent};
-use super::state::{focus_item_count, visible_start_for, UiMode, UiState};
-use cards::{draw_card_peek, draw_card_with_selection, draw_footer, draw_global_row};
+use super::state::{card_focus_base, focus_item_count, visible_start_for, UiMode, UiState};
+use cards::{draw_card_peek, draw_card_with_selection, draw_footer, draw_global_row, draw_home_card};
 use glyphs::draw_title_bar;
 use layout::*;
 use menus::lora::draw_lora_editor;
@@ -84,7 +84,7 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D, frame: Render
     }
 
     if let Some(selected_item) = state.interface_menu_selected_item() {
-        if let Some(selected_card) = state.selected_card(cards) {
+        if let Some(selected_card) = state.selected_card(content) {
             draw_interface_menu(
                 display,
                 selected_card,
@@ -95,9 +95,10 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D, frame: Render
         }
     }
 
-    let selected = state.selected_card_index(cards.len());
+    let selected = state.selected_card_index(content);
     let item_count = focus_item_count(content);
-    let footer_focus = cards.len() + 1;
+    let card_base = card_focus_base(content);
+    let footer_focus = card_base + cards.len();
     let start = visible_start_for(item_count, state.selected_focus, state.visible_start);
     let mut top = CARD_TOP;
     let mut focus_index = start;
@@ -116,8 +117,12 @@ pub fn render<D: DrawTarget<Color = BinaryColor>>(display: &mut D, frame: Render
                     state.selected_focus == footer_focus,
                 );
             }
+        } else if focus_index < card_base {
+            if let Some(identity) = content.node_identity {
+                draw_home_card(display, top, identity, state.home_selected(content));
+            }
         } else {
-            let card_index = focus_index - 1;
+            let card_index = focus_index - card_base;
             let selected_card = selected == Some(card_index);
             if top + CARD_H <= HEIGHT {
                 draw_card_with_selection(display, top, &cards[card_index], selected_card);

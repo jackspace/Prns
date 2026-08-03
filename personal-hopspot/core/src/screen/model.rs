@@ -450,8 +450,17 @@ pub struct LocalDocsAccess<'a> {
     pub docs_host: &'a str,
 }
 
+/// What the home card shows: the resolved node name and the full delivery destination as lowercase
+/// hex, both resolved once at boot by the face. Only runtime identity data; no display literals.
+pub struct NodeIdentityCard<'a> {
+    pub name: &'a str,
+    pub delivery_hex: &'a str,
+}
+
 #[derive(Clone, Copy)]
 pub struct ScreenContent<'content, 'docs> {
     pub cards: &'content [Card],
+    /// The node's own identity, drawn as the home card right under the global row.
+    pub node_identity: Option<&'content NodeIdentityCard<'docs>>,
     pub local_docs: Option<&'content LocalDocsAccess<'docs>>,
 }

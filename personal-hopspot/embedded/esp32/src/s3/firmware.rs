@@ -393,13 +393,14 @@ pub(super) async fn run_core<B: Esp32S3Board>(
             activity.update(&mut cards, activity_secs);
             let content = screen::ScreenContent {
                 cards: &cards,
+                node_identity: None,
                 local_docs: local_docs.as_ref(),
             };
             #[cfg(feature = "wifi-auto")]
             let menu_ap_ssid = active_ap_ssid.as_deref();
             #[cfg(feature = "wifi-auto")]
             let interface_menu_details = build_interface_menu_details(
-                ui_state.selected_card(content.cards),
+                ui_state.selected_card(content),
                 &snapshots,
                 usb_status,
                 lora_spectrum,
@@ -411,10 +412,10 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                 let mut details = screen::InterfaceMenuDetails::empty();
                 add_lora_spectrum(
                     &mut details,
-                    ui_state.selected_card(content.cards),
+                    ui_state.selected_card(content),
                     lora_spectrum,
                 );
-                add_manifold_pressure(&mut details, ui_state.selected_card(content.cards));
+                add_manifold_pressure(&mut details, ui_state.selected_card(content));
                 details
             };
             ui_state.sync(content);
@@ -581,7 +582,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                             );
                         }
                         screen::UiAction::ToggleSelectedInterface => {
-                            if let Some(card) = ui_state.selected_card(content.cards) {
+                            if let Some(card) = ui_state.selected_card(content) {
                                 let mut handled = false;
                                 let mut show_toggle_notice = |enabled: bool| {
                                     ui_state.show_notice(if enabled {

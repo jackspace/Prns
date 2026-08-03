@@ -57,12 +57,13 @@ impl HopspotFace {
         let cards = self.build_cards();
         let content = ScreenContent {
             cards: &cards,
+            node_identity: None,
             local_docs: None,
         };
         let action = self.state.handle_input(event, content);
         match action {
             UiAction::ToggleSelectedInterface => {
-                if let Some(card) = self.state.selected_card(content.cards) {
+                if let Some(card) = self.state.selected_card(content) {
                     let id = card.id();
                     let turning_on = card.liveness() == personal_hopspot_core::Liveness::Disabled;
                     self.show_notice(if turning_on {
@@ -118,6 +119,7 @@ impl HopspotFace {
     ) {
         let content = ScreenContent {
             cards,
+            node_identity: None,
             local_docs: None,
         };
         self.state.sync(content);
@@ -138,7 +140,7 @@ impl HopspotFace {
                 .as_millis()
                 .min(u128::from(u64::MAX)) as u64;
             let interface_menu_details = snapshots_to_interface_menu_details(
-                self.state.selected_card(content.cards),
+                self.state.selected_card(content),
                 snapshots,
             );
             render(
@@ -253,6 +255,7 @@ mod tests {
             InputEvent::ShortPress,
             ScreenContent {
                 cards: &cards,
+                node_identity: None,
                 local_docs: None,
             },
         );
@@ -273,6 +276,7 @@ mod tests {
             InputEvent::LongPress,
             ScreenContent {
                 cards: &cards,
+                node_identity: None,
                 local_docs: None,
             },
         );

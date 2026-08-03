@@ -14,7 +14,7 @@ fn render_marks_selected_card_below_global_row() {
 
     let selected_top = FIRST_CARD_WITH_GLOBAL_TOP;
     assert!(state
-        .selected_card(&cards)
+        .selected_card(content)
         .is_some_and(|selected| core::ptr::eq(selected, &cards[0])));
     assert_eq!(state.visible_start, 0);
     assert_eq!(
@@ -82,6 +82,43 @@ fn render_shows_selected_global_row() {
 }
 
 #[test]
+fn render_places_home_card_under_global_row_before_interface_cards() {
+    let cards = [test_card("USB")];
+    let identity = test_identity();
+    let content = ScreenContent {
+        cards: &cards,
+        node_identity: Some(&identity),
+        local_docs: None,
+    };
+    let mut state = test_ui_state();
+    state.sync(content);
+
+    let mut display = PanelDisplay::new();
+    render_with_identity(&mut display, &cards, BatteryState::Unknown, &state, &identity);
+
+    assert_eq!(
+        display.get_pixel(Point::new(0, FIRST_CARD_WITH_GLOBAL_TOP)),
+        Some(BinaryColor::On)
+    );
+    assert!(has_on_pixel(
+        &display,
+        HOME_ADDRESS_X..WIDTH,
+        (FIRST_CARD_WITH_GLOBAL_TOP + HOME_ADDRESS_TOP)
+            ..(FIRST_CARD_WITH_GLOBAL_TOP + HOME_ADDRESS_TOP + 24)
+    ));
+    assert_eq!(
+        display.get_pixel(Point::new(0, FIRST_CARD_WITH_GLOBAL_TOP + CARD_SLOT_STEP)),
+        Some(BinaryColor::On)
+    );
+    assert!(has_on_pixel(
+        &display,
+        NAME_ICON_X..WIDTH,
+        (FIRST_CARD_WITH_GLOBAL_TOP + CARD_SLOT_STEP + NAME_LINE_Y)
+            ..(FIRST_CARD_WITH_GLOBAL_TOP + CARD_SLOT_STEP + NAME_LINE_Y + 10)
+    ));
+}
+
+#[test]
 fn render_scrolls_local_docs_after_the_last_card() {
     let cards = [test_card("USB"), test_card("BLE"), test_card("Wi-Fi")];
     let mut state = test_ui_state();
@@ -91,13 +128,14 @@ fn render_scrolls_local_docs_after_the_last_card() {
     };
     let content = ScreenContent {
         cards: &cards,
+        node_identity: None,
         local_docs: Some(&local_docs),
     };
     for _ in 0..4 {
         state.handle_input(InputEvent::ShortPress, content);
     }
 
-    assert!(state.selected_card(&cards).is_none());
+    assert!(state.selected_card(content).is_none());
     assert_eq!(state.visible_start, 3);
 
     let mut display = PanelDisplay::new();
@@ -125,6 +163,7 @@ fn render_shows_local_docs_access_details() {
     };
     let content = ScreenContent {
         cards: &cards,
+        node_identity: None,
         local_docs: Some(&local_docs),
     };
     for _ in 0..4 {
@@ -156,6 +195,7 @@ fn footer_focus_long_press_opens_docs() {
     };
     let content = ScreenContent {
         cards: &cards,
+        node_identity: None,
         local_docs: Some(&local_docs),
     };
     let mut state = test_ui_state();
@@ -165,14 +205,14 @@ fn footer_focus_long_press_opens_docs() {
         UiAction::None
     );
     assert!(state
-        .selected_card(&cards)
+        .selected_card(content)
         .is_some_and(|selected| core::ptr::eq(selected, &cards[0])));
 
     assert_eq!(
         state.handle_input(InputEvent::ShortPress, content),
         UiAction::None
     );
-    assert!(state.selected_card(&cards).is_none());
+    assert!(state.selected_card(content).is_none());
 
     assert_eq!(
         state.handle_input(InputEvent::LongPress, content),
@@ -195,7 +235,7 @@ fn render_scrolls_global_row_out_of_card_window() {
     render_with_state(&mut display, &cards, BatteryState::Unknown, &state);
 
     assert!(state
-        .selected_card(&cards)
+        .selected_card(content)
         .is_some_and(|selected| core::ptr::eq(selected, &cards[2])));
     assert_eq!(state.visible_start, 2);
     assert_eq!(
@@ -269,7 +309,7 @@ fn render_shows_selected_interface_menu() {
     render_with_state(&mut display, &cards, BatteryState::Unknown, &state);
 
     assert!(state
-        .selected_card(&cards)
+        .selected_card(content)
         .is_some_and(|selected| core::ptr::eq(selected, &cards[1])));
     assert_eq!(state.interface_menu_selected_item(), Some(0));
     assert_eq!(

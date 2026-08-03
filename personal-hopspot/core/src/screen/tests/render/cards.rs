@@ -96,6 +96,66 @@ fn offline_card_centers_status_and_hides_metrics() {
 }
 
 #[test]
+fn home_card_shows_name_and_wraps_the_full_address() {
+    let mut display = PanelDisplay::new();
+    let identity = test_identity();
+
+    draw_home_card(&mut display, CARD_TOP, &identity, false);
+
+    assert_eq!(
+        display.get_pixel(Point::new(0, CARD_TOP)),
+        Some(BinaryColor::On)
+    );
+    assert_eq!(
+        display.get_pixel(Point::new(WIDTH - 1, CARD_TOP)),
+        Some(BinaryColor::On)
+    );
+    assert_eq!(
+        display.get_pixel(Point::new(0, CARD_TOP + CARD_H - 1)),
+        Some(BinaryColor::On)
+    );
+    assert!(has_on_pixel(
+        &display,
+        1..WIDTH - 1,
+        (CARD_TOP + 3)..(CARD_TOP + 11)
+    ));
+    for row in 0..3 {
+        let row_top = CARD_TOP + HOME_ADDRESS_TOP + row * 8;
+        assert!(
+            has_on_pixel(&display, HOME_ADDRESS_X..WIDTH - 1, row_top..row_top + 8),
+            "address row {row} should carry glyphs"
+        );
+    }
+    assert!(!has_on_pixel(
+        &display,
+        1..WIDTH - 1,
+        (CARD_TOP + HOME_ADDRESS_TOP + 24)..(CARD_TOP + CARD_H - 1)
+    ));
+}
+
+#[test]
+fn selected_home_card_inverts_its_name() {
+    let mut display = PanelDisplay::new();
+    let identity = test_identity();
+
+    draw_home_card(&mut display, CARD_TOP, &identity, true);
+
+    assert_eq!(
+        display.get_pixel(Point::new(1, CARD_TOP + 2)),
+        Some(BinaryColor::On)
+    );
+    let mut inverted_glyph_pixels = false;
+    for y in (CARD_TOP + 2)..(CARD_TOP + 12) {
+        for x in 1..WIDTH - 1 {
+            if display.get_pixel(Point::new(x, y)) == Some(BinaryColor::Off) {
+                inverted_glyph_pixels = true;
+            }
+        }
+    }
+    assert!(inverted_glyph_pixels);
+}
+
+#[test]
 fn selected_card_inverts_name_content() {
     let mut display = MockDisplay::new();
     display.set_allow_overdraw(true);

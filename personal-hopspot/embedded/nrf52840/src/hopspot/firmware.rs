@@ -324,6 +324,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
             activity.update(&mut cards, activity_secs);
             let content = hopspot::ScreenContent {
                 cards: &cards,
+                node_identity: None,
                 local_docs: None,
             };
             ui_state.sync(content);
@@ -344,11 +345,11 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
 
             let _ = panel.clear(EpdColor::White);
             let mut interface_menu_details = hopspot::snapshots_to_interface_menu_details(
-                ui_state.selected_card(content.cards),
+                ui_state.selected_card(content),
                 &snapshots,
             );
             if ui_state
-                .selected_card(content.cards)
+                .selected_card(content)
                 .is_some_and(|card| card.id() == lora_status.id())
             {
                 let spectrum = lora_spectrum.snapshot();
@@ -442,7 +443,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
                             }));
                         }
                         hopspot::UiAction::ToggleSelectedInterface => {
-                            if let Some(card) = ui_state.selected_card(content.cards) {
+                            if let Some(card) = ui_state.selected_card(content) {
                                 if card.id() == lora_status.id() {
                                     ui_state.show_notice(if lora_status.is_enabled() {
                                         hopspot::UiNotice::TurningOff

@@ -176,13 +176,22 @@ impl UiState {
         matches!(self.mode, UiMode::Cards) && self.selected_focus == 0
     }
 
-    pub fn selected_card<'card>(&self, cards: &'card [Card]) -> Option<&'card Card> {
-        cards.get(self.selected_card_index(cards.len())?)
+    pub(in crate::screen) fn home_selected(&self, content: ScreenContent<'_, '_>) -> bool {
+        matches!(self.mode, UiMode::Cards)
+            && content.node_identity.is_some()
+            && self.selected_focus == 1
     }
 
-    pub(in crate::screen) fn selected_card_index(&self, card_count: usize) -> Option<usize> {
-        let card_index = self.selected_focus.checked_sub(1)?;
-        if card_index < card_count {
+    pub fn selected_card<'card>(&self, content: ScreenContent<'card, '_>) -> Option<&'card Card> {
+        content.cards.get(self.selected_card_index(content)?)
+    }
+
+    pub(in crate::screen) fn selected_card_index(
+        &self,
+        content: ScreenContent<'_, '_>,
+    ) -> Option<usize> {
+        let card_index = self.selected_focus.checked_sub(card_focus_base(content))?;
+        if card_index < content.cards.len() {
             Some(card_index)
         } else {
             None
@@ -265,7 +274,7 @@ impl UiState {
             | UiMode::Sleeping
             | UiMode::LoRaEditor { .. }
             | UiMode::ConfirmRadioSwap { .. } => {}
-            UiMode::InterfaceMenu { .. } if self.selected_card(content.cards).is_none() => {
+            UiMode::InterfaceMenu { .. } if self.selected_card(content).is_none() => {
                 self.mode = UiMode::Cards;
             }
             UiMode::InterfaceMenu {
@@ -287,7 +296,7 @@ impl UiState {
     }
 
     pub fn handle_input(&mut self, event: InputEvent, content: ScreenContent<'_, '_>) -> UiAction {
-        let card_count = content.cards.len();
+        let footer_focus = card_focus_base(content) + content.cards.len();
         self.notice = None;
         self.sync(content);
         let item_count = focus_item_count(content);
@@ -315,12 +324,12 @@ impl UiState {
                 UiAction::None
             }
             (InputEvent::LongPress, UiMode::Cards)
-                if content.local_docs.is_some() && self.selected_focus == card_count + 1 =>
+                if content.local_docs.is_some() && self.selected_focus == footer_focus =>
             {
                 UiAction::OpenDocs
             }
             (InputEvent::LongPress, UiMode::Cards) => {
-                if let Some(card) = self.selected_card(content.cards) {
+                if let Some(card) = self.selected_card(content) {
                     self.mode = UiMode::InterfaceMenu {
                         selected_item: 0,
                         kind: card.kind(),
@@ -434,8 +443,13 @@ impl UiState {
     }
 }
 
+/// Focus slots before the first interface card: the global row, plus the home card when present.
+pub(in crate::screen) fn card_focus_base(content: ScreenContent<'_, '_>) -> usize {
+    1 + usize::from(content.node_identity.is_some())
+}
+
 pub(in crate::screen) fn focus_item_count(content: ScreenContent<'_, '_>) -> usize {
-    content.cards.len() + 1 + usize::from(content.local_docs.is_some())
+    card_focus_base(content) + content.cards.len() + usize::from(content.local_docs.is_some())
 }
 
 pub(in crate::screen) fn visible_start_for(

@@ -14,16 +14,17 @@ use crate::battery::{BatteryPercent, BatteryState};
 
 use super::limits::{build_limit_rows, LimitValue};
 use super::model::InterfaceMenuDetailKind;
-use super::render::cards::draw_card_with_selection;
+use super::render::cards::{draw_card_with_selection, draw_home_card};
 use super::render::glyphs::{
     draw_battery, draw_clock, draw_interface_icon, draw_link, draw_person,
 };
 use super::render::layout::{
     ACTIVITY_TEXT_X, CARD_H, CARD_SLOT_STEP, CARD_TOP, FIRST_CARD_WITH_GLOBAL_TOP,
     FOOTER_FOURTH_LINE_OFFSET, FOOTER_SECOND_LINE_OFFSET, GLOBAL_BACKING_H, GLOBAL_BACKING_X,
-    GLOBAL_BACKING_Y, GLOBAL_ICON_X, GLOBAL_ROW_H, GLOBAL_ROW_TOP, HEIGHT, MENU_BACKING_X,
-    MENU_DIVIDER_Y, MENU_HEADER_Y, MENU_ITEM_STEP, MENU_ITEM_TOP, MENU_MARK_X, MENU_REASON_X,
-    NAME_BACKING_X, NAME_BACKING_Y, NAME_ICON_X, NAME_LINE_Y, STAT_ICON_X, STAT_TEXT_X, WIDTH,
+    GLOBAL_BACKING_Y, GLOBAL_ICON_X, GLOBAL_ROW_H, GLOBAL_ROW_TOP, HEIGHT, HOME_ADDRESS_TOP,
+    HOME_ADDRESS_X, MENU_BACKING_X, MENU_DIVIDER_Y, MENU_HEADER_Y, MENU_ITEM_STEP, MENU_ITEM_TOP,
+    MENU_MARK_X, MENU_REASON_X, NAME_BACKING_X, NAME_BACKING_Y, NAME_ICON_X, NAME_LINE_Y,
+    STAT_ICON_X, STAT_TEXT_X, WIDTH,
 };
 use super::render::menus::draw_interface_menu;
 use super::render::menus::lora::{LORA_DOT_X, LORA_EDITOR_TOP};
@@ -41,8 +42,8 @@ use super::state::{
 use super::{
     card_label, render as render_screen, sort_cards_for_display, AccessPointState, Card,
     CardActivityTracker, CardKind, DisplayPowerControl, InputEvent, InterfaceMenuDetails, Liveness,
-    LoRaSpectrumMenuDetails, LocalDocsAccess, RenderFrame, ScreenContent, UiAction,
-    UiConfiguration, UiState,
+    LoRaSpectrumMenuDetails, LocalDocsAccess, NodeIdentityCard, RenderFrame, ScreenContent,
+    UiAction, UiConfiguration, UiState,
 };
 
 const TEST_WIDTH: usize = WIDTH as usize;
@@ -122,6 +123,7 @@ fn render_with_local_docs<D: DrawTarget<Color = BinaryColor>>(
         RenderFrame {
             content: ScreenContent {
                 cards,
+                node_identity: None,
                 local_docs: Some(local_docs),
             },
             battery,
@@ -130,6 +132,37 @@ fn render_with_local_docs<D: DrawTarget<Color = BinaryColor>>(
             animation_ms: 0,
         },
     );
+}
+
+fn render_with_identity<D: DrawTarget<Color = BinaryColor>>(
+    display: &mut D,
+    cards: &[Card],
+    battery: BatteryState,
+    state: &UiState,
+    identity: &NodeIdentityCard<'_>,
+) {
+    let interface_menu_details = InterfaceMenuDetails::empty();
+    render_screen(
+        display,
+        RenderFrame {
+            content: ScreenContent {
+                cards,
+                node_identity: Some(identity),
+                local_docs: None,
+            },
+            battery,
+            state,
+            interface_menu_details: &interface_menu_details,
+            animation_ms: 0,
+        },
+    );
+}
+
+fn test_identity() -> NodeIdentityCard<'static> {
+    NodeIdentityCard {
+        name: "Hopspot-a233",
+        delivery_hex: "a2335c1f00112233445566778899aaff",
+    }
 }
 
 fn test_card(label: &'static str) -> Card {
@@ -159,6 +192,7 @@ fn test_cards<const N: usize>(kind: CardKind) -> [Card; N] {
 fn test_content(cards: &[Card]) -> ScreenContent<'_, 'static> {
     ScreenContent {
         cards,
+        node_identity: None,
         local_docs: None,
     }
 }
