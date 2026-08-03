@@ -118,4 +118,9 @@ impl SharedFaceFrame {
         self.frame
             .lock(|cell| cell.borrow_mut().copy_from_slice(&frame.bytes));
     }
+
+    #[cfg(feature = "wifi-auto")]
+    pub(super) fn snapshot(&self, out: &mut [u8; FACE_FRAME_BYTES]) {
+        self.frame.lock(|cell| out.copy_from_slice(&*cell.borrow()));
+    }
 }

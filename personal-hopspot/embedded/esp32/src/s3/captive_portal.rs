@@ -460,6 +460,8 @@ async fn serve_site_connection<'a>(
         let path = normalize_http_path(raw_path);
         if path == "/captive-portal/api" {
             send_captive_portal_api(socket, is_head).await
+        } else if path == "/face/frame" {
+            send_face_frame(socket, is_head).await
         } else if is_captive_probe_path(path) {
             send_captive_portal_redirect(socket, is_head).await
         } else if path == "/index.html" {
@@ -570,6 +572,25 @@ async fn send_captive_portal_api(
             status: "200 OK",
             content_type: "application/captive+json",
             body,
+            head_only,
+        },
+    )
+    .await
+}
+
+/// `/face/frame`: the latest composed frame, raw. Layout per
+/// [`face::FACE_FRAME_BYTES`]: 64x128, 1 bit per pixel, row-major from the
+/// top-left, most significant bit leftmost.
+#[cfg(feature = "wifi-auto")]
+async fn send_face_frame(socket: &mut TcpSocket<'static>, head_only: bool) -> Result<(), ()> {
+    let mut frame = [0u8; face::FACE_FRAME_BYTES];
+    FACE_FRAME.snapshot(&mut frame);
+    send_site_response(
+        socket,
+        SiteResponse {
+            status: "200 OK",
+            content_type: "application/octet-stream",
+            body: &frame,
             head_only,
         },
     )
