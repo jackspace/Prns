@@ -48,7 +48,7 @@ const MINISIGN_GLOBAL_SIGNATURE_RAW_LEN: usize = 64;
 const MINISIGN_ED25519_ALGORITHM: &[u8; 2] = b"Ed";
 const MINISIGN_ED25519_PREHASHED_ALGORITHM: &[u8; 2] = b"ED";
 const BLAKE2B_DIGEST_LEN: usize = 64;
-const UPDATE_PROGRESS_LOG_BYTES: usize = 256 * 1024;
+const UPDATE_PROGRESS_LOG_BYTES: usize = 16 * 1024;
 const READBACK_YIELD_SECTORS: usize = 16;
 /// Core 1 heartbeats (one per second) the fresh boot must accumulate before the running slot is
 /// marked valid: proof the engine is alive, not just that the bootloader found an image.
@@ -469,7 +469,17 @@ impl BodyReader<'_> {
                 continue;
             }
             match self.socket.read(&mut chunk[filled..want]).await {
-                Ok(0) | Err(_) => break,
+                // Why the stream ended decides whether an incomplete upload is the peer
+                // hanging up, a timeout, or the link dropping under us. Throwing that away
+                // leaves only "truncated", which is true of all three.
+                Ok(0) => {
+                    log::warn!("update: body stream closed by peer");
+                    break;
+                }
+                Err(error) => {
+                    log::warn!("update: body read failed: {error:?}");
+                    break;
+                }
                 Ok(read) => filled += read,
             }
         }
