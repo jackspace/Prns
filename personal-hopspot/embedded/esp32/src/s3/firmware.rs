@@ -375,6 +375,8 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                 lora_status,
                 espnow_card_status,
             );
+            #[cfg(feature = "telemetry")]
+            telemetry::TELEMETRY_SHARED.record(battery_state, &snapshots);
             #[cfg(feature = "wifi-auto")]
             let tcp_card_config = wifi_config.tcp_client.as_ref();
             #[cfg(not(feature = "wifi-auto"))]
@@ -680,6 +682,12 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     boot_stage(BootPhase::BluetoothReady);
 
     spawner.spawn(watchdog_task(rtc.rwdt).expect("watchdog task fits"));
+
+    #[cfg(feature = "telemetry")]
+    spawner.spawn(
+        telemetry::telemetry_beacon_task(handle, self_destination, B::ANNOUNCE_APP_DATA)
+            .expect("telemetry beacon task fits"),
+    );
 
     #[cfg(all(feature = "bluetooth-auto", not(feature = "wifi-auto")))]
     {
