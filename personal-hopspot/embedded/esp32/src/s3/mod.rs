@@ -145,6 +145,14 @@ const HOPSPOT_CONFIG_SSID_MAX: usize = 32;
 const HOPSPOT_CONFIG_PASSWORD_MAX: usize = 64;
 #[cfg(feature = "wifi-auto")]
 const HOPSPOT_CONFIG_TCP_KIND_OFFSET: usize = 9;
+/// Provisioned request to come up in SoftAP mode. Raising the access point is otherwise an OLED
+/// menu action, which a board with no screen can never reach, so a headless node has no way to
+/// serve its own portal. Byte 12 was unused: the lengths live at 10 and 11 and the SSID starts
+/// at 16, so this reads as absent on every slot provisioned before it existed.
+#[cfg(feature = "wifi-auto")]
+const HOPSPOT_CONFIG_RADIO_MODE_OFFSET: usize = 12;
+#[cfg(feature = "wifi-auto")]
+const HOPSPOT_CONFIG_RADIO_MODE_ACCESS_POINT: u8 = 1;
 #[cfg(feature = "wifi-auto")]
 const HOPSPOT_CONFIG_TCP_HOST_LENGTH_OFFSET: usize =
     16 + HOPSPOT_CONFIG_SSID_MAX + HOPSPOT_CONFIG_PASSWORD_MAX;
@@ -623,14 +631,20 @@ const RADIO_MODE_BLE: u32 = 0x424C_4501;
 #[esp_hal::ram(unstable(rtc_fast, persistent))]
 static mut RADIO_MODE_FLAG: u32 = 0;
 
-fn boot_radio_mode(station_configured: bool) -> RadioMode {
-    let _ = station_configured;
+fn boot_radio_mode(station_configured: bool, provisioned_access_point: bool) -> RadioMode {
+    let _ = (station_configured, provisioned_access_point);
     #[cfg(feature = "wifi-auto")]
     {
         // SAFETY: Boot reads the aligned RTC-fast persistent word before concurrent tasks start;
         // volatile semantics are not required because reset is the only cross-execution boundary.
         let flag = unsafe { core::ptr::addr_of!(RADIO_MODE_FLAG).read() };
         if flag == RADIO_MODE_AP {
+            return RadioMode::AccessPoint;
+        }
+        // The menu still wins for the session: swapping to Bluetooth on a board that has a screen
+        // sets the flag and must not be undone on the next boot by the provisioning slot. Only a
+        // cold start, where the RTC word is clear, falls through to what the slot asked for.
+        if flag != RADIO_MODE_BLE && provisioned_access_point {
             return RadioMode::AccessPoint;
         }
         RadioMode::Ble
