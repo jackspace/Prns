@@ -310,14 +310,34 @@ fn dns_question_end(req: &[u8]) -> Option<(usize, u16)> {
     Some((pos + 4, qtype))
 }
 
+/// Receive window for the portal sockets. Sized for the firmware upload, which is the only
+/// request that streams more than a page. Four times the original 4 KiB.
+///
+/// Not larger: at 64 KiB per socket this board reached `network.ready` and then died in the
+/// allocator a few seconds later with "Freed node aliases existing hole! Bad free?" at an
+/// internal-SRAM address, reproducibly, where the 4 KiB build ran for many minutes across
+/// several boots. Something in that allocation size disturbs a heap this firmware shares with
+/// the radio stack. Worth finding, but the window does not need to be that big.
+#[cfg(feature = "wifi-auto")]
+const UPLOAD_RX_WINDOW: usize = 16 * 1024;
+/// Long enough to outlast one flash sector erase plus write under radio load, with margin.
+#[cfg(feature = "wifi-auto")]
+const HTTP_SOCKET_TIMEOUT: Duration = Duration::from_secs(60);
+
 #[cfg(feature = "wifi-auto")]
 #[embassy_executor::task(pool_size = 4)]
 pub(super) async fn http_server_task(stack: Stack<'static>) -> ! {
-    let rx_buffer: &'static mut [u8] = alloc::vec![0u8; 4096].leak();
+    // A firmware upload is the one request that streams megabytes in. Erasing and writing a
+    // flash sector parks the reader long enough that a 4 KiB receive window collapses the
+    // transfer: measured on a V4-R8 at roughly 800 B/s, dying on the socket timeout twenty
+    // thousand bytes into a 1.6 MB image. A larger window lets the peer keep the pipe full
+    // across each stall, and the timeout has to outlast the worst single stall, not the
+    // average one. Both come out of the PSRAM-backed global heap.
+    let rx_buffer: &'static mut [u8] = alloc::vec![0u8; UPLOAD_RX_WINDOW].leak();
     let tx_buffer: &'static mut [u8] = alloc::vec![0u8; 16384].leak();
     let request_buffer: &'static mut [u8] = alloc::vec![0u8; 4096].leak();
     let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
-    socket.set_timeout(Some(Duration::from_secs(15)));
+    socket.set_timeout(Some(HTTP_SOCKET_TIMEOUT));
 
     loop {
         if socket.accept(80u16).await.is_err() {
