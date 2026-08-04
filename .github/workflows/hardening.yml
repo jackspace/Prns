@@ -1,6 +1,8 @@
 name: hardening
 
 on:
+  push:
+    branches: [test/hardening-dispatch]
   workflow_dispatch:
   schedule:
     - cron: "41 8 * * 1"
