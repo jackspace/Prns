@@ -232,6 +232,13 @@ async fn install_image(
             .map_err(UpdateError::Slots)?;
         ota.current_app_partition().map_err(UpdateError::Slots)?
     };
+    // An erased otadata reads back as a Factory selection, and this table has no factory row, so
+    // "the other slot" of Factory would fall through to ota_0: the exact slot a freshly migrated
+    // board is executing from. Refuse rather than guess; the health task repairs an unreadable
+    // selection to ota_0 within seconds and the retry then targets ota_1 safely.
+    if running != AppPartitionSubType::Ota0 && running != AppPartitionSubType::Ota1 {
+        return Err(UpdateError::RunningSlotUnknown);
+    }
     let target = other_slot(running);
     let target_entry = if target == AppPartitionSubType::Ota0 {
         ota_0
@@ -725,6 +732,7 @@ enum UpdateError {
     BodyTruncated { received: usize, expected: usize },
     SlotMissing { slot: AppPartitionSubType },
     OtaDataMissing,
+    RunningSlotUnknown,
     SlotBelowIdentityHead { slot: AppPartitionSubType, offset: u32 },
     SlotOverlapsRouteJournal { slot: AppPartitionSubType, offset: u32, len: u32 },
     SlotOverlapsRadioProfile { slot: AppPartitionSubType, offset: u32, len: u32 },
@@ -739,7 +747,8 @@ impl UpdateError {
             Self::UpdateInProgress
             | Self::SignatureNotStaged
             | Self::SlotMissing { .. }
-            | Self::OtaDataMissing => "409 Conflict",
+            | Self::OtaDataMissing
+            | Self::RunningSlotUnknown => "409 Conflict",
             Self::LengthRequired => "411 Length Required",
             Self::SignatureDocumentTooLarge { .. } | Self::ImageTooLarge { .. } => {
                 "413 Payload Too Large"
@@ -777,6 +786,7 @@ impl UpdateError {
             Self::BodyTruncated { .. } => "body-truncated",
             Self::SlotMissing { .. } => "slot-missing",
             Self::OtaDataMissing => "ota-data-missing",
+            Self::RunningSlotUnknown => "running-slot-unknown",
             Self::SlotBelowIdentityHead { .. } => "slot-below-identity-head",
             Self::SlotOverlapsRouteJournal { .. } => "slot-overlaps-route-journal",
             Self::SlotOverlapsRadioProfile { .. } => "slot-overlaps-radio-profile",
@@ -862,6 +872,12 @@ impl core::fmt::Display for UpdateError {
                 write!(
                     formatter,
                     "partition table has no otadata slot; flash the A/B migration first"
+                )
+            }
+            Self::RunningSlotUnknown => {
+                write!(
+                    formatter,
+                    "the boot selection is unreadable; the node repairs it on its own, retry in a few seconds"
                 )
             }
             Self::SlotBelowIdentityHead { slot, offset } => {
