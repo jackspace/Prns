@@ -9,9 +9,9 @@ the track-notes commits that carry this file:
 4. `Simplify the renamed CI step name`
 5. `Fix the T114 radio SPI: Spim::new takes sck, miso, mosi`
 
-Nothing on this branch has been compiled. The rules for this track forbid running cargo here;
-every claim below about "works" means "assembled and cross-checked by reading", and the build
-commands are for the human to run serially.
+**Built and running on hardware as of 2026-08-08** — see "First build and first light" at the
+bottom. Claims below this line predate that build; the dated section records what the compiler
+and the board actually settled.
 
 ## What is in each commit
 
@@ -176,3 +176,33 @@ cheapest planned sanity check.
   bring-up margin, not a datasheet number.
 - Backlight brightness is fixed by a series resistor that changed between board revisions
   (200R on V2.0, 56R on V2.1); firmware cannot equalise it beyond duty-cycling the enable pin.
+
+## First build and first light — 2026-08-08
+
+Rebased onto trunk `5b63de39` (2,358 commits of drift; conflicts in the split commit and the
+notices file, resolved as "trunk's content, this branch's structure and names"). Then the first
+compile in the branch's history, in WSL Ubuntu with the workspace's pinned toolchain:
+`cargo build --release --locked -p hopspot-heltec-t114 -p hopspot-t-echo` → both link.
+
+What the build settled, against the untested-assumptions list:
+
+- `bind_interrupts!` on `pub(crate)`, `Spim::new_txonly`, `Frequency::M32`, `Output::set_level`,
+  the `!`-returning trait async fn, `Saadc` through `&mut Self::Battery`, `Rgb565::new`,
+  `IntoStorage`, `Rectangle::intersection`, the 68 KiB stack assert, and the hand-edited
+  `Cargo.lock` under `--locked`: all fine.
+- One real correction: the SPIM3 *interrupt* is `SPIM3` in embassy-nrf 0.10's typelevel table
+  even though the *peripheral* stays `SPI3`. Both references fixed in `src/board.rs`.
+- Two trunk-drift adaptations: the shared firmware loop no longer constructs an
+  `EinkRefreshPolicy` (the display type owns its policy now), and `BoardConfig` grew
+  `external_rx_gain_db` (zero for both boards). The T-Echo inherits trunk's 1.6 V TCXO fix.
+
+On the board (bootloader re-flashed the same day to SD 7.3.0, see
+the bench flash log for 2026-08-08):
+
+- UF2 built at 0x27000 / family 0xADA52840 (532,248-byte app), copied to the `HT-n5262` drive.
+- **Boots.** USB enumerates as `Personal Hopspot (T114)`, serial `PERSONAL-RNS-T114-HOP`.
+- **BLE advertises as `Prns`** at desk RSSI — S140 7.3.0 up, identity bootstrap ran.
+- **The ST7789 shows the Hopspot UI correctly on the first try** — window origin, rotation,
+  inversion, and colour order all came out right from the verified pin map.
+- One open gap: Windows leaves the WebUSB function at Code 28 (no driver bound), so the MSOS
+  descriptor path deserves a look on nRF; the ESP32 boards' Windows flow doesn't hit this.
