@@ -25,7 +25,7 @@ use personal_rns::radios::sx126x::Sx126x;
 bind_interrupts!(pub(crate) struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;
     SPI2 => spim::InterruptHandler<peripherals::SPI2>;
-    SPI3 => spim::InterruptHandler<peripherals::SPI3>;
+    SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
     TWISPI0 => spim::InterruptHandler<peripherals::TWISPI0>;
     SAADC => saadc::InterruptHandler;
 });
@@ -96,7 +96,7 @@ pub(crate) fn apply_interrupt_priorities() {
     // SPIM3 is the only instance on this part that runs above 8 MHz; a board with a fast panel
     // puts that panel here. A binding for an instance a board never starts costs a vector table
     // entry and nothing else.
-    interrupt::SPI3.set_priority(BUS_INTERRUPT_PRIORITY);
+    interrupt::SPIM3.set_priority(BUS_INTERRUPT_PRIORITY);
     interrupt::TWISPI0.set_priority(BUS_INTERRUPT_PRIORITY);
     interrupt::SAADC.set_priority(BUS_INTERRUPT_PRIORITY);
 }

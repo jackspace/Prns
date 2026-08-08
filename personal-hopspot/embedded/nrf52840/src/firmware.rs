@@ -312,11 +312,6 @@ pub(crate) async fn run<B: Nrf52840Board>(spawner: Spawner) -> ! {
             ui_state.show_notice(notice);
         }
         let mut working_lora_profile = lora_profile;
-        let mut refresh_policy = hopspot::EinkRefreshPolicy::new(
-            PARTIAL_REFRESH_LIMIT,
-            FULL_REFRESH_MAX_AGE_MS,
-            TELEMETRY_MIN_INTERVAL_MS,
-        );
         let mut refresh_urgency = hopspot::EinkRefreshUrgency::Immediate;
         let mut activity = hopspot::CardActivityTracker::<{ MEMBERS + 4 }>::new();
         let mut notice_until_ms =

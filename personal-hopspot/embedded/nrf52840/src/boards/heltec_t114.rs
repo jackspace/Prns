@@ -331,6 +331,7 @@ impl Nrf52840Board for HeltecT114Board {
                 use_dcdc: true,
                 rx_boost: true,
                 dio2_as_rf_switch: true,
+                external_rx_gain_db: 0,
             },
         );
 
