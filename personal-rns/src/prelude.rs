@@ -61,6 +61,8 @@ pub use crate::bluetooth_auto::{
 pub use crate::browser_rendezvous::BrowserRendezvous;
 #[cfg(all(feature = "esp-now", feature = "embassy-host"))]
 pub use crate::esp_now::EspNowInterface;
+#[cfg(all(feature = "halow-at", feature = "embassy-host"))]
+pub use crate::halow_at::HalowAtInterface;
 #[cfg(all(feature = "i2p", feature = "tokio-host"))]
 pub use crate::i2p::I2pInterface;
 #[cfg(all(feature = "kiss", feature = "tokio-host"))]

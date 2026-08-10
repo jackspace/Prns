@@ -43,6 +43,9 @@ pub mod radios;
 #[cfg(feature = "esp-now")]
 pub mod esp_now;
 
+#[cfg(feature = "halow-at")]
+pub mod halow_at;
+
 #[cfg(feature = "bluetooth-auto")]
 pub mod bluetooth_auto;
 

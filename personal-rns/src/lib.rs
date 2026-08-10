@@ -40,6 +40,8 @@ pub use interface_families::bluetooth_auto;
 pub use interface_families::browser_rendezvous;
 #[cfg(all(feature = "esp-now", feature = "embassy-host"))]
 pub use interface_families::esp_now;
+#[cfg(all(feature = "halow-at", feature = "embassy-host"))]
+pub use interface_families::halow_at;
 #[cfg(all(feature = "i2p", feature = "tokio-host"))]
 pub use interface_families::i2p;
 #[cfg(all(feature = "kiss", feature = "tokio-host"))]

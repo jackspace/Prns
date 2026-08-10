@@ -96,6 +96,7 @@ weave = ["prns-interfaces-tokio?/weave"]
 shared-instance = ["prns-runtime/rns-management", "prns-runtime-tokio?/rns-management", "prns-interfaces-tokio?/shared-instance"]
 lora = ["prns-interfaces-embassy?/lora"]
 esp-now = ["prns-interfaces-embassy?/esp-now"]
+halow-at = ["prns-interfaces-embassy?/halow-at"]
 
 [dependencies]
 cfg-if = "1.0"

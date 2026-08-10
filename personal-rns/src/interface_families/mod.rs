@@ -11,6 +11,8 @@ pub mod bluetooth_auto;
 pub mod browser_rendezvous;
 #[cfg(all(feature = "esp-now", feature = "embassy-host"))]
 pub mod esp_now;
+#[cfg(all(feature = "halow-at", feature = "embassy-host"))]
+pub mod halow_at;
 #[cfg(all(feature = "i2p", feature = "tokio-host"))]
 pub mod i2p;
 #[cfg(all(feature = "kiss", feature = "tokio-host"))]
