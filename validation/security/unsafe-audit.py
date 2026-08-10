@@ -64,6 +64,11 @@ GRAPHS = (
         "personal-hopspot/embedded/esp32/boards/t-beam-supreme/Cargo.toml",
         "xtensa-esp32s3-none-elf",
     ),
+    (
+        "esp32-s3-t-halow",
+        "personal-hopspot/embedded/esp32/boards/t-halow/Cargo.toml",
+        "xtensa-esp32s3-none-elf",
+    ),
     ("wasm", "prns-wasm/Cargo.toml", "wasm32-unknown-unknown"),
 )
 UNSAFE_EXCEPTIONS = {

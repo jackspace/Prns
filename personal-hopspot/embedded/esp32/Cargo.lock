@@ -1722,6 +1722,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hopspot-t-halow"
+version = "0.1.0"
+dependencies = [
+ "embassy-executor",
+ "esp-hal",
+ "esp-rtos",
+ "personal-hopspot-esp32",
+]
+
+[[package]]
 name = "hopspot-xiao-esp32-c6"
 version = "0.1.0"
 dependencies = [

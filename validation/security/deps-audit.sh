@@ -30,6 +30,7 @@ graphs=(
     "esp32-s3-heltec|personal-hopspot/embedded/esp32/boards/heltec-v4/Cargo.toml|xtensa-esp32s3-none-elf"
     "esp32-s3-heltec-r8|personal-hopspot/embedded/esp32/boards/heltec-v4-r8/Cargo.toml|xtensa-esp32s3-none-elf"
     "esp32-s3-tbeam|personal-hopspot/embedded/esp32/boards/t-beam-supreme/Cargo.toml|xtensa-esp32s3-none-elf"
+    "esp32-s3-t-halow|personal-hopspot/embedded/esp32/boards/t-halow/Cargo.toml|xtensa-esp32s3-none-elf"
     "wasm|prns-wasm/Cargo.toml|wasm32-unknown-unknown"
     "website-rust|docs/website/Cargo.toml|wasm32-unknown-unknown"
     "flasher-macos-arm64|personal-hopspot/flasher/Cargo.toml|aarch64-apple-darwin"

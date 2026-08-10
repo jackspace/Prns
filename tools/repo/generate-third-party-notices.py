@@ -57,6 +57,11 @@ GRAPHS = (
         "personal-hopspot/embedded/esp32/boards/t-beam-supreme/Cargo.toml",
         "xtensa-esp32s3-none-elf",
     ),
+    (
+        "ESP32-S3 T-Halow",
+        "personal-hopspot/embedded/esp32/boards/t-halow/Cargo.toml",
+        "xtensa-esp32s3-none-elf",
+    ),
     ("WASM", "prns-wasm/Cargo.toml", "wasm32-unknown-unknown"),
     ("website Rust/WASM", "docs/website/Cargo.toml", "wasm32-unknown-unknown"),
     (
