@@ -55,6 +55,7 @@ const _: () = assert!(WIFI_DYNAMIC_RX_BUFFERS > WIFI_RX_BA_WINDOW as u16);
 #[cfg(feature = "wifi-auto")]
 const _: () = assert!(WIFI_STATIC_TX_BUFFERS >= WIFI_TX_QUEUE_FRAMES as u8);
 
+#[cfg(feature = "tcp")]
 pub(super) fn build_tcp(
     stack: Stack<'static>,
     config: &HopspotTcpClientConfig,

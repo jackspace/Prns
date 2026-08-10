@@ -3,18 +3,9 @@
 
 extern crate alloc;
 
-#[cfg(all(
-    target_arch = "xtensa",
-    not(all(
-        feature = "bluetooth-auto",
-        feature = "esp-now",
-        feature = "tcp",
-        feature = "usb",
-        feature = "wifi-auto"
-    ))
-))]
+#[cfg(all(target_arch = "xtensa", not(feature = "usb")))]
 compile_error!(
-    "ESP32-S3 firmware is built through a board package, which selects bluetooth-auto, esp-now, tcp, usb, and wifi-auto (plus lora on boards with an SX1262)"
+    "ESP32-S3 firmware is built through a board package, which always selects usb (plus lora, bluetooth-auto, wifi-auto, tcp, and esp-now on boards that carry those radios)"
 );
 
 #[cfg(all(
@@ -53,14 +44,7 @@ mod flash;
 mod identity;
 #[cfg(any(target_arch = "riscv32", target_arch = "xtensa"))]
 mod persistence;
-#[cfg(all(
-    target_arch = "xtensa",
-    feature = "bluetooth-auto",
-    feature = "esp-now",
-    feature = "tcp",
-    feature = "usb",
-    feature = "wifi-auto"
-))]
+#[cfg(all(target_arch = "xtensa", feature = "usb"))]
 pub mod s3;
 #[cfg(any(test, target_arch = "xtensa"))]
 mod station_recovery;

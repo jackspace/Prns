@@ -1,8 +1,9 @@
 mod board;
 pub mod boards;
 
+use alloc::string::String;
 #[cfg(feature = "wifi-auto")]
-use alloc::string::{String, ToString};
+use alloc::string::ToString;
 use core::fmt::Write as _;
 use esp_backtrace as _;
 use esp_bootloader_esp_idf::esp_app_desc;
@@ -50,7 +51,6 @@ use embedded_graphics::pixelcolor::BinaryColor;
 #[cfg(feature = "lora")]
 use embedded_hal_bus::spi::ExclusiveDevice;
 use heapless::Vec as HVec;
-#[cfg(feature = "wifi-auto")]
 use portable_atomic::AtomicBool;
 use portable_atomic::{AtomicU32, AtomicU64, Ordering};
 use static_cell::StaticCell;
@@ -114,10 +114,12 @@ use personal_rns::runtime::{
     PrnsNodeRecipe, SharedNorFlash, StaticManifoldLane,
 };
 use personal_rns::storage::StorageLayout;
+#[cfg(feature = "tcp")]
 use personal_rns::tcp::{
     TcpClient, TcpClientInput, TcpClientTarget, TcpSocketBuffers, TCP_DNS_HOSTNAME_MAX_BYTES,
 };
 use personal_rns::usb_auto::{UsbAutoDevice, UsbAutoDeviceInput};
+#[cfg(feature = "wifi-auto")]
 use personal_rns::wifi_auto::{
     tcp_rendezvous, AutoWifi, AutoWifiSegment, AutoWifiShared, AutoWifiStatus, AutoWifiTopology,
     TcpRendezvousBuffers, TcpRendezvousServer, TcpRendezvousStorage, TcpRendezvousWireSlot,
@@ -367,10 +369,11 @@ const PACKET_PHY_RETENTION_CAPACITY: usize = 32;
 const PACKET_PHY_INDEX_BUCKETS: usize =
     personal_rns::routing::dedup::dedup_index_buckets(PACKET_PHY_RETENTION_CAPACITY);
 
-#[cfg(feature = "wifi-auto")]
+// Read unconditionally by the card renderer; without wifi-auto nothing sets them, so the
+// renderer just sees a station that never joined and never degraded.
 static WIFI_STATION_JOINED: AtomicBool = AtomicBool::new(false);
-#[cfg(feature = "wifi-auto")]
 static WIFI_STATION_DATA_PATH_DEGRADED: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "wifi-auto")]
 static WIFI_DRIVER_RESTART_REQUESTED: AtomicBool = AtomicBool::new(false);
 static CORE_ONE_HEARTBEAT: AtomicU64 = AtomicU64::new(0);
 

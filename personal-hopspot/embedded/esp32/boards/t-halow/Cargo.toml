@@ -7,10 +7,18 @@ publish = false
 description = "Personal Hopspot firmware for the LilyGO T-Halow (ESP32-S3 N16R8 + Taixin TX-AH Wi-Fi HaLow)"
 
 [dependencies]
-personal-hopspot-esp32 = { path = "../..", default-features = false, features = ["bluetooth-auto", "wifi-auto", "esp-now", "usb", "tcp", "halow-at"] }
+personal-hopspot-esp32 = { path = "../..", default-features = false, features = ["usb", "halow-at"] }
 embassy-executor = { version = "0.10", default-features = false }
 esp-hal = { version = "1.1", features = ["esp32s3", "unstable"] }
 esp-rtos = { version = "0.3.0", features = ["esp32s3", "embassy", "esp-radio"] }
 
 [features]
-default = []
+default = ["radios-2g4"]
+# Building with --no-default-features leaves HaLow as the board's only radio, so a link test
+# cannot be satisfied by 2.4 GHz behind its back.
+radios-2g4 = [
+    "personal-hopspot-esp32/bluetooth-auto",
+    "personal-hopspot-esp32/wifi-auto",
+    "personal-hopspot-esp32/esp-now",
+    "personal-hopspot-esp32/tcp",
+]

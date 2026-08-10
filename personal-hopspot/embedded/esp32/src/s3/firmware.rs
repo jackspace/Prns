@@ -42,10 +42,11 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     } = hardware.manifold;
     #[cfg(feature = "wifi-auto")]
     let (wifi_config, wifi_config_source) = hopspot_wifi_config();
-    #[cfg(feature = "wifi-auto")]
-    let station_configured = wifi_config.has_station();
+    // A board without the radio never reads the provisioning slot, so the renderer sees an empty
+    // config: no station, no TCP card.
     #[cfg(not(feature = "wifi-auto"))]
-    let station_configured = false;
+    let wifi_config = HopspotWifiConfig::default();
+    let station_configured = wifi_config.has_station();
     let radio_mode = boot_radio_mode(station_configured);
     #[cfg(feature = "wifi-auto")]
     log::info!(

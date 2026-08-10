@@ -1,7 +1,8 @@
 use super::*;
 
-#[cfg(feature = "wifi-auto")]
-#[derive(Clone, Debug)]
+// The config types stay compiled on every board: they are pure data the card renderer reads, and
+// a board without the radios simply carries an empty one. Only the behavior below is gated.
+#[derive(Clone, Debug, Default)]
 pub(super) struct HopspotWifiConfig {
     pub(super) ssid: String,
     pub(super) password: String,
@@ -20,8 +21,8 @@ pub(super) enum HopspotTcpClientHost {
     Hostname(String),
 }
 
-#[cfg(feature = "wifi-auto")]
 impl HopspotWifiConfig {
+    #[cfg(feature = "wifi-auto")]
     fn from_build_env() -> Self {
         Self {
             ssid: WIFI_SSID.to_string(),
