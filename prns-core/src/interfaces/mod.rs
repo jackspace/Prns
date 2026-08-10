@@ -11,6 +11,7 @@ pub mod bluetooth_auto;
 pub mod browser_rendezvous;
 pub mod channel_rendezvous;
 pub mod esp_now;
+pub mod halow_at;
 pub mod i2p;
 pub mod kiss;
 pub mod lora;

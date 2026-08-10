@@ -37,10 +37,11 @@ pub enum InterfaceKind {
     I2pPeer = 31,
     Weave = 32,
     WeavePeer = 33,
+    HalowAt = 34,
 }
 
 impl InterfaceKind {
-    pub const ALL: [Self; 34] = [
+    pub const ALL: [Self; 35] = [
         Self::Loopback,
         Self::TcpClient,
         Self::TcpServer,
@@ -75,6 +76,7 @@ impl InterfaceKind {
         Self::I2pPeer,
         Self::Weave,
         Self::WeavePeer,
+        Self::HalowAt,
     ];
 
     #[must_use]
@@ -114,6 +116,7 @@ impl InterfaceKind {
             31 => Some(Self::I2pPeer),
             32 => Some(Self::Weave),
             33 => Some(Self::WeavePeer),
+            34 => Some(Self::HalowAt),
             _ => None,
         }
     }
@@ -155,6 +158,7 @@ impl InterfaceKind {
             Self::I2pPeer => "i2p-peer",
             Self::Weave => "weave",
             Self::WeavePeer => "weave-peer",
+            Self::HalowAt => "halow-at",
         }
     }
 
@@ -355,6 +359,13 @@ mod tests {
             InterfaceKind::I2pPeer.supervisor_kind(),
             Some(InterfaceKind::I2p)
         );
+    }
+
+    #[test]
+    fn halow_at_is_an_independent_broadcast_kind() {
+        assert_eq!(InterfaceKind::from_u8(34), Some(InterfaceKind::HalowAt));
+        assert_eq!(InterfaceKind::HalowAt.member_kind(), None);
+        assert_eq!(InterfaceKind::HalowAt.supervisor_kind(), None);
     }
 
     #[test]

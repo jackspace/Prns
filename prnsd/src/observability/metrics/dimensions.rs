@@ -139,6 +139,7 @@ pub(super) fn interface_kind_name(kind: InterfaceKind) -> &'static str {
         InterfaceKind::I2pPeer => "i2p_peer",
         InterfaceKind::Weave => "weave",
         InterfaceKind::WeavePeer => "weave_peer",
+        InterfaceKind::HalowAt => "halow_at",
     }
 }
 
