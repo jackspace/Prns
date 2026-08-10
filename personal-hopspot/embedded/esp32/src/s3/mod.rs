@@ -20,6 +20,8 @@ use esp_hal::spi::master::Spi;
 use esp_hal::system::Stack as CpuStack;
 #[cfg(feature = "wifi-auto")]
 use esp_hal::time::Duration as HalDuration;
+#[cfg(feature = "halow-at")]
+use esp_hal::uart::{UartRx, UartTx};
 use esp_hal::usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagRx, UsbSerialJtagTx};
 use esp_hal::Async;
 
@@ -74,11 +76,17 @@ use personal_rns::bluetooth_auto::{BluetoothAutoShared, BluetoothAutoStatus};
 use personal_rns::engine::{AnnounceAppData, AnnounceNow, AnnounceTarget, PrnsCommand};
 #[cfg(feature = "wifi-auto")]
 use personal_rns::esp_now::EspNowInterface;
+#[cfg(feature = "halow-at")]
+use personal_rns::halow_at::HalowAtInterface;
 #[cfg(feature = "bluetooth-auto")]
 use personal_rns::interfaces::bluetooth_auto::{BleIdentity, BLE_HW_MTU};
 #[cfg(feature = "wifi-auto")]
 use personal_rns::interfaces::esp_now::{
     self as espnow_core, Channel as EspNowChannel, ChannelPolicy, ESP_NOW_V2_AIR_MTU,
+};
+#[cfg(feature = "halow-at")]
+use personal_rns::interfaces::halow_at::{
+    self as halow_core, HALOW_AT_BITRATE_BPS, HALOW_AT_MAX_WIRE_FRAME_LEN,
 };
 #[cfg(feature = "lora")]
 use personal_rns::interfaces::lora::{AirtimePolicy, DEFAULT_915_PROFILE, LORA_MAX_PAYLOAD};
@@ -191,7 +199,8 @@ const TCP_SOCKET_BUFFER_BYTES: usize = 4 * 1_024;
 const LANE_COUNT: usize = 3
     + cfg!(feature = "lora") as usize
     + cfg!(feature = "bluetooth-auto") as usize
-    + cfg!(feature = "esp-now") as usize;
+    + cfg!(feature = "esp-now") as usize
+    + cfg!(feature = "halow-at") as usize;
 const MEMBERS: usize = 24;
 #[cfg(feature = "bluetooth-auto")]
 pub const BLE_PEER_CAPACITY: usize = EMBEDDED_BLE_PEER_CAPACITY;
@@ -199,8 +208,11 @@ pub const BLE_PEER_CAPACITY: usize = EMBEDDED_BLE_PEER_CAPACITY;
 pub const BLE_CONTROLLER_ACTIVITY_CAPACITY: u8 = (BLE_PEER_CAPACITY + 1) as u8;
 #[cfg(not(feature = "bluetooth-auto"))]
 pub const BLE_PEER_CAPACITY: usize = 0;
-const INTERFACE_CAPACITY: usize =
-    3 + MEMBERS + BLE_PEER_CAPACITY + cfg!(feature = "esp-now") as usize;
+const INTERFACE_CAPACITY: usize = 3
+    + MEMBERS
+    + BLE_PEER_CAPACITY
+    + cfg!(feature = "esp-now") as usize
+    + cfg!(feature = "halow-at") as usize;
 const WIFI_SUPERVISOR_ID: InterfaceId =
     InterfaceId::new([InterfaceKind::AutoWifi as u8, 0, 0, 0, 0, 0, 0, 0]);
 const LANE_DEPTH: usize = 1;
@@ -245,6 +257,10 @@ type S3LoraSeam = EmbassyInterfaceSeam<'static, Mtx, NOTIFY_CAP, LORA_MAX_PAYLOA
 type S3EspNowInterface = EspNowInterface<'static, EspNowAdapter>;
 #[cfg(feature = "esp-now")]
 type S3EspNowSeam = EmbassyInterfaceSeam<'static, Mtx, NOTIFY_CAP, ESP_NOW_V2_AIR_MTU>;
+#[cfg(feature = "halow-at")]
+type S3HalowInterface = HalowAtInterface<'static, UartRx<'static, Async>, UartTx<'static, Async>>;
+#[cfg(feature = "halow-at")]
+type S3HalowSeam = EmbassyInterfaceSeam<'static, Mtx, NOTIFY_CAP, HALOW_AT_MAX_WIRE_FRAME_LEN>;
 type S3TcpSeam = EmbassyInterfaceSeam<'static, Mtx, NOTIFY_CAP, EMBEDDED_MAX_WIRE_FRAME_LEN>;
 #[cfg(feature = "wifi-auto")]
 type S3WifiFleet = Fleet<Mtx, { wifi_auto_contract::HARDWARE_MTU }, NOTIFY_CAP, LIFECYCLE_CAP>;
@@ -329,6 +345,9 @@ static BLE_MANIFOLD_LANE: StaticManifoldLane<Mtx, BLE_HW_MTU, LANE_DEPTH, 0> =
     StaticManifoldLane::new();
 #[cfg(feature = "esp-now")]
 static ESPNOW_MANIFOLD_LANE: StaticManifoldLane<Mtx, ESP_NOW_V2_AIR_MTU, LANE_DEPTH, 0> =
+    StaticManifoldLane::new();
+#[cfg(feature = "halow-at")]
+static HALOW_MANIFOLD_LANE: StaticManifoldLane<Mtx, HALOW_AT_MAX_WIRE_FRAME_LEN, LANE_DEPTH, 0> =
     StaticManifoldLane::new();
 
 static NOTIFY: Channel<Mtx, InterfaceId, NOTIFY_CAP> = Channel::new();

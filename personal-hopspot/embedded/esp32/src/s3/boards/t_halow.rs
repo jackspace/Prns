@@ -61,9 +61,10 @@ impl screen::BatterySource for NoBattery {
 }
 
 /// The LilyGO T-Halow's board half: an ESP32-S3 N16R8 (16 MB flash, 8 MB Octal PSRAM — the same
-/// SiP profile as the Heltec V4-R8) carrying a Taixin TX-AH Wi-Fi HaLow module on UART
-/// (GPIO4 TX → module, GPIO5 RX ← module), no display, no SX1262. The HaLow port stays unclaimed
-/// here until the `halow-at` interface wires in; everything past bring-up is the shared [`s3`] core.
+/// SiP profile as the Heltec V4-R8) carrying a Taixin TX-AH Wi-Fi HaLow module on a UART
+/// (GPIO4 module → ESP32, GPIO5 ESP32 → module, 115200 8N1), no display, no SX1262. Bring-up
+/// hands the split async UART to the `halow_at` interface; everything past it is the shared
+/// [`s3`] core.
 pub struct THalowBoard;
 
 impl Esp32S3Board for THalowBoard {
@@ -97,6 +98,19 @@ impl Esp32S3Board for THalowBoard {
 
         log::info!("headless board: no display, battery sense, or SX1262 to bring up");
 
+        // The HaLow module's AT console. Pin roles per LilyGO's own AT_test sketch:
+        // GPIO4 is the ESP32's RX (module talks on it), GPIO5 the ESP32's TX. The module boots
+        // on its own (~2 s to banner); the interface's init resets it anyway.
+        #[cfg(feature = "halow-at")]
+        let halow_uart = {
+            let uart = esp_hal::uart::Uart::new(p.UART1, esp_hal::uart::Config::default())
+                .expect("halow uart1")
+                .with_rx(p.GPIO4)
+                .with_tx(p.GPIO5)
+                .into_async();
+            uart.split()
+        };
+
         S3BoardHardware {
             face: BoardFace {
                 display: BoardDisplay {
@@ -111,6 +125,8 @@ impl Esp32S3Board for THalowBoard {
             },
             interface_hardware: S3InterfaceHardware {
                 usb_device: p.USB_DEVICE,
+                #[cfg(feature = "halow-at")]
+                halow_uart,
                 #[cfg(feature = "wifi-auto")]
                 wifi: p.WIFI,
                 #[cfg(feature = "bluetooth-auto")]

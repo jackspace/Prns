@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 fn classify_card(
     id: InterfaceId,
     usb_id: InterfaceId,
@@ -9,6 +10,7 @@ fn classify_card(
     wifi_kind: screen::CardKind,
     lora_id: Option<InterfaceId>,
     espnow_id: Option<InterfaceId>,
+    halow_id: Option<InterfaceId>,
 ) -> Option<(screen::CardKind, screen::CardLabel)> {
     if id == usb_id {
         Some((screen::CardKind::Usb, screen::card_label("USB")))
@@ -18,6 +20,8 @@ fn classify_card(
         Some((wifi_kind, screen::card_label("LAN")))
     } else if Some(id) == espnow_id {
         Some((screen::CardKind::EspNow, screen::card_label("ESP-NOW")))
+    } else if Some(id) == halow_id {
+        Some((screen::CardKind::HalowAt, screen::card_label("HaLow")))
     } else if Some(id) == tcp_id {
         let tcp_client = tcp_client?;
         let label = match &tcp_client.host {
@@ -74,6 +78,7 @@ pub(super) fn build_snapshots(
     tcp: Option<&EmbassyInterfaceStatus>,
     lora: Option<&EmbassyInterfaceStatus>,
     espnow: Option<&EmbassyInterfaceStatus>,
+    halow: Option<&EmbassyInterfaceStatus>,
 ) -> HVec<InterfaceSnapshot, 8> {
     use personal_rns::interfaces::InterfaceStatus;
     #[cfg(feature = "bluetooth-auto")]
@@ -91,6 +96,9 @@ pub(super) fn build_snapshots(
     }
     if let Some(espnow) = espnow {
         let _ = entries.push((espnow, Membership::Independent));
+    }
+    if let Some(halow) = halow {
+        let _ = entries.push((halow, Membership::Independent));
     }
     if let Some(tcp) = tcp {
         let _ = entries.push((tcp, Membership::Independent));
@@ -153,6 +161,7 @@ pub(super) fn build_cards(
     wifi_config: &HopspotWifiConfig,
     lora_id: Option<InterfaceId>,
     espnow_id: Option<InterfaceId>,
+    halow_id: Option<InterfaceId>,
 ) -> HVec<screen::Card, 8> {
     let wifi_kind = if !wifi_config.has_station() {
         screen::CardKind::Wifi
@@ -163,7 +172,7 @@ pub(super) fn build_cards(
     };
     screen::snapshots_to_cards(snapshots, |id| {
         classify_card(
-            id, usb_id, wifi_id, tcp_id, tcp_client, wifi_kind, lora_id, espnow_id,
+            id, usb_id, wifi_id, tcp_id, tcp_client, wifi_kind, lora_id, espnow_id, halow_id,
         )
     })
 }
@@ -183,6 +192,8 @@ fn egress_pressure_events(id: InterfaceId) -> u32 {
         }
         #[cfg(feature = "esp-now")]
         Some(InterfaceKind::EspNow) => ESPNOW_MANIFOLD_LANE.egress_pressure_events(),
+        #[cfg(feature = "halow-at")]
+        Some(InterfaceKind::HalowAt) => HALOW_MANIFOLD_LANE.egress_pressure_events(),
         _ => 0,
     }
 }
@@ -202,6 +213,8 @@ fn ingress_pressure_events(id: InterfaceId) -> u32 {
             .saturating_add(BluetoothAutoStatus::new(&BLE_SHARED).ingress_pressure_events()),
         #[cfg(feature = "esp-now")]
         Some(InterfaceKind::EspNow) => ESPNOW_MANIFOLD_LANE.ingress_pressure_events(),
+        #[cfg(feature = "halow-at")]
+        Some(InterfaceKind::HalowAt) => HALOW_MANIFOLD_LANE.ingress_pressure_events(),
         _ => 0,
     }
 }

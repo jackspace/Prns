@@ -27,6 +27,8 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         usb_device,
         #[cfg(feature = "lora")]
         lora_radio,
+        #[cfg(feature = "halow-at")]
+        halow_uart,
         #[cfg(feature = "wifi-auto")]
             wifi: wifi_hardware,
         #[cfg(feature = "bluetooth-auto")]
@@ -204,6 +206,23 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         )
     });
 
+    #[cfg(feature = "halow-at")]
+    let halow_status: &'static EmbassyInterfaceStatus = mk_static!(
+        EmbassyInterfaceStatus,
+        EmbassyInterfaceStatus::new(halow_core::interface_id(), ConnectionState::Initializing)
+    );
+    #[cfg(feature = "halow-at")]
+    let halow = {
+        let (halow_rx, halow_tx) = halow_uart;
+        HalowAtInterface::new(
+            halow_rx,
+            halow_tx,
+            HALOW_AT_BITRATE_BPS,
+            ReconnectPolicy::STANDARD,
+            halow_status,
+        )
+    };
+
     #[cfg(feature = "wifi-auto")]
     boot_stage(BootPhase::TcpBegin);
     #[cfg(feature = "wifi-auto")]
@@ -239,6 +258,8 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     let lora_cfg = lora.descriptor();
     #[cfg(feature = "esp-now")]
     let espnow_cfg = espnow.as_ref().map(|e| e.descriptor());
+    #[cfg(feature = "halow-at")]
+    let halow_cfg = halow.descriptor();
     let tcp_cfg = tcp_built.as_ref().map(|(t, _, _)| t.descriptor());
     let has_wifi = wifi.is_some();
 
@@ -302,6 +323,15 @@ pub(super) async fn run_core<B: Esp32S3Board>(
             .claim_interface_with_outbound_buffer(&ESPNOW_MANIFOLD_LANE, descriptor, outbound)
             .expect("ESP-NOW lane is available")
     });
+    #[cfg(feature = "halow-at")]
+    let halow_lane = {
+        let outbound = crate::storage::allocate_manifold_outbound::<HALOW_AT_MAX_WIRE_FRAME_LEN>(
+            OUTBOUND_BURST_DEPTH,
+        );
+        manifold_lanes
+            .claim_interface_with_outbound_buffer(&HALOW_MANIFOLD_LANE, halow_cfg, outbound)
+            .expect("HaLow lane is available")
+    };
 
     let handle: Handle = PrnsNodeHandle::new(COMMANDS.sender(), &COMPLETION);
     let manifold_wiring = manifold_lanes.into_manifold_wiring(
@@ -346,6 +376,9 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         (interface, seam)
     });
 
+    #[cfg(feature = "halow-at")]
+    let halow_seam = halow_lane.into_seam(NOTIFY.sender(), hardware_entropy);
+
     let tcp = tcp_built.zip(tcp_lane).map(|((tcp, _, _), lane)| {
         let seam = lane.into_seam(NOTIFY.sender(), hardware_entropy);
         (tcp, seam)
@@ -387,6 +420,17 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     let espnow_card_status = espnow_card_id.map(|_| espnow_status);
     #[cfg(not(feature = "esp-now"))]
     let (espnow_card_id, espnow_card_status): (
+        Option<InterfaceId>,
+        Option<&'static EmbassyInterfaceStatus>,
+    ) = (None, None);
+
+    #[cfg(feature = "halow-at")]
+    let (halow_card_id, halow_card_status): (
+        Option<InterfaceId>,
+        Option<&'static EmbassyInterfaceStatus>,
+    ) = (Some(halow.id()), Some(halow_status));
+    #[cfg(not(feature = "halow-at"))]
+    let (halow_card_id, halow_card_status): (
         Option<InterfaceId>,
         Option<&'static EmbassyInterfaceStatus>,
     ) = (None, None);
@@ -455,6 +499,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                 tcp_status,
                 lora_card_status,
                 espnow_card_status,
+                halow_card_status,
             );
             #[cfg(feature = "wifi-auto")]
             let tcp_card_config = wifi_config.tcp_client.as_ref();
@@ -470,6 +515,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                 &wifi_config,
                 lora_card_id,
                 espnow_card_id,
+                halow_card_id,
             );
             let now_ms = embassy_time::Instant::now().as_millis();
             let activity_secs = (now_ms / 1000).min(u64::from(u32::MAX)) as u32;
@@ -623,6 +669,9 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                             if let Some(status) = espnow_card_status {
                                 status.disable();
                             }
+                            if let Some(status) = halow_card_status {
+                                status.disable();
+                            }
                             if let Some(tcp) = tcp_status {
                                 tcp.disable();
                             }
@@ -650,6 +699,9 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                                 status.enable();
                             }
                             if let Some(status) = espnow_card_status {
+                                status.enable();
+                            }
+                            if let Some(status) = halow_card_status {
                                 status.enable();
                             }
                             if let Some(tcp) = tcp_status {
@@ -717,6 +769,13 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                                 }
                                 if !handled && Some(card.id()) == espnow_card_id {
                                     if let Some(status) = espnow_card_status {
+                                        show_toggle_notice(status.is_enabled());
+                                        status.toggle_enabled();
+                                        handled = true;
+                                    }
+                                }
+                                if !handled && Some(card.id()) == halow_card_id {
+                                    if let Some(status) = halow_card_status {
                                         show_toggle_notice(status.is_enabled());
                                         status.toggle_enabled();
                                         handled = true;
@@ -890,6 +949,8 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         if let Some((interface, seam)) = espnow {
             spawner.spawn(espnow_task(interface, seam).expect("ESP-NOW task fits"));
         }
+        #[cfg(feature = "halow-at")]
+        spawner.spawn(halow_task(halow, halow_seam).expect("HaLow task fits"));
         if let Some((interface, seam)) = tcp {
             spawner.spawn(tcp_task(interface, seam).expect("TCP task fits"));
         }
@@ -928,6 +989,12 @@ async fn lora_task(interface: S3LoraInterface, seam: S3LoraSeam) {
 #[cfg(feature = "esp-now")]
 #[embassy_executor::task]
 async fn espnow_task(interface: S3EspNowInterface, seam: S3EspNowSeam) {
+    interface.run(seam).await
+}
+
+#[cfg(feature = "halow-at")]
+#[embassy_executor::task]
+async fn halow_task(interface: S3HalowInterface, seam: S3HalowSeam) {
     interface.run(seam).await
 }
 

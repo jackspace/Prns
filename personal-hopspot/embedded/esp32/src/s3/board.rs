@@ -24,6 +24,9 @@ pub(crate) struct S3InterfaceHardware {
     pub(crate) usb_device: USB_DEVICE<'static>,
     #[cfg(feature = "lora")]
     pub(crate) lora_radio: LoraRadio,
+    /// The HaLow module's AT console, already split and async: (module → host, host → module).
+    #[cfg(feature = "halow-at")]
+    pub(crate) halow_uart: (UartRx<'static, Async>, UartTx<'static, Async>),
     #[cfg(feature = "wifi-auto")]
     pub(crate) wifi: esp_hal::peripherals::WIFI<'static>,
     #[cfg(feature = "bluetooth-auto")]
