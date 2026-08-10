@@ -334,6 +334,25 @@ pub(in crate::screen) fn draw_interface_icon<D: DrawTarget<Color = BinaryColor>>
                 color,
             );
         }
+        CardKind::HalowAt => {
+            draw_pattern_colored(
+                display,
+                x,
+                y,
+                &[
+                    " ####### ",
+                    "#       #",
+                    "  #####  ",
+                    " #     # ",
+                    "   ###   ",
+                    "  #   #  ",
+                    "         ",
+                    "    #    ",
+                    "    #    ",
+                ],
+                color,
+            );
+        }
         CardKind::Tcp => {
             draw_pattern_colored(
                 display,

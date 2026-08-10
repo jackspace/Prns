@@ -200,3 +200,22 @@ fn esp_now_icon_reads_as_omni_broadcast_glyph() {
         "#       #",
     ]);
 }
+
+#[test]
+fn halow_icon_reads_as_wifi_arcs_glyph() {
+    let mut display = MockDisplay::new();
+
+    draw_interface_icon(&mut display, 0, 0, CardKind::HalowAt, BinaryColor::On);
+
+    display.assert_pattern(&[
+        " ####### ",
+        "#       #",
+        "  #####  ",
+        " #     # ",
+        "   ###   ",
+        "  #   #  ",
+        "         ",
+        "    #    ",
+        "    #    ",
+    ]);
+}

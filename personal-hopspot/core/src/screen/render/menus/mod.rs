@@ -38,6 +38,7 @@ pub(in crate::screen) const fn station_uplink_action_label(kind: CardKind) -> Op
         | CardKind::Ble
         | CardKind::LoRa
         | CardKind::EspNow
+        | CardKind::HalowAt
         | CardKind::Tcp
         | CardKind::Peer => None,
     }

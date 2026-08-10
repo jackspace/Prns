@@ -7,6 +7,7 @@ fn display_sort_pins_usb_last_and_prioritizes_radios() {
         CardKind::Usb,
         CardKind::Wifi,
         CardKind::Tcp,
+        CardKind::HalowAt,
         CardKind::Ble,
         CardKind::EspNow,
         CardKind::LoRa,
@@ -26,6 +27,7 @@ fn display_sort_pins_usb_last_and_prioritizes_radios() {
             CardKind::Wifi,
             CardKind::Ble,
             CardKind::EspNow,
+            CardKind::HalowAt,
             CardKind::Tcp,
             CardKind::Usb,
         ]

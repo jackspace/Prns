@@ -12,6 +12,7 @@ pub enum CardKind {
     Ble,
     LoRa,
     EspNow,
+    HalowAt,
     Tcp,
     /// A fleet member a supervisor stood up (a Wi-Fi/USB peer), not an interface a node configured itself. Renders one font-size down — fits its id tag and reads as subordinate to its parent.
     Peer,
@@ -391,9 +392,10 @@ const fn card_display_rank(kind: CardKind) -> u8 {
         CardKind::Wifi | CardKind::WifiStation | CardKind::WifiStationDisabled => 1,
         CardKind::Ble => 2,
         CardKind::EspNow => 3,
-        CardKind::Tcp => 4,
-        CardKind::Peer => 5,
-        CardKind::Usb => 6,
+        CardKind::HalowAt => 4,
+        CardKind::Tcp => 5,
+        CardKind::Peer => 6,
+        CardKind::Usb => 7,
     }
 }
 

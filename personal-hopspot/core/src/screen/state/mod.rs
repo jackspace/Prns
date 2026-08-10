@@ -45,6 +45,7 @@ pub(in crate::screen) fn interface_menu_items(kind: CardKind) -> &'static [&'sta
         | CardKind::Usb
         | CardKind::Ble
         | CardKind::EspNow
+        | CardKind::HalowAt
         | CardKind::Tcp => POWER_ONLY_MENU_ITEMS,
     }
 }
