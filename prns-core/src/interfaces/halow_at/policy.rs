@@ -1,20 +1,23 @@
-use super::protocol::{HALOW_AT_AIR_MTU, HALOW_AT_HEADER_LEN};
-
 use crate::interfaces::{
     AnnounceBandwidthCap, BitrateBps, ConfiguredInterfacePolicy, EgressCapability,
     IngressCapability, InterfaceCapabilities, InterfaceDefaults, InterfaceDescriptor, InterfaceId,
     InterfaceMode, MtuPolicy, TransportCapability, IFAC_MAX_SIZE,
 };
 
-/// The clean-packet MTU we declare: the air ceiling less the pseudo-Ethernet header the module
-/// consumes and the largest access tag, so a full frame plus its IFAC code still fits one
-/// `AT+TXDATA` exchange.
-pub const HALOW_AT_HW_MTU: usize = HALOW_AT_AIR_MTU - HALOW_AT_HEADER_LEN - IFAC_MAX_SIZE;
+/// The MTU this interface declares: the RNS minimum. One air frame carries at most
+/// [`HALOW_AT_CHUNK_CAP`](super::HALOW_AT_CHUNK_CAP) data bytes, so the driver fragments each
+/// wire frame across a per-sender HDLC byte stream — the declared MTU is a promise the
+/// fragmentation layer keeps, not an air-frame property.
+pub const HALOW_AT_HW_MTU: usize = 500;
 
-/// A representative broadcast goodput for announce pacing and the MTU tier — an honest order of
-/// magnitude for a 1 MHz / MCS0 link behind the module's default 115200 UART, not a measured peak.
-// TODO(bench): revisit once the throughput run lands (Phase 0 test 8) and the UART is rebauded.
-pub const HALOW_AT_BITRATE_BPS: BitrateBps = BitrateBps::guess(100_000);
+/// The largest wire frame the seam can hand the driver: a full MTU packet plus the largest
+/// access tag. Sizes the reassembly buffers and the outbound encode scratch.
+pub const HALOW_AT_MAX_WIRE_FRAME_LEN: usize = HALOW_AT_HW_MTU + IFAC_MAX_SIZE;
+
+/// Bench-measured broadcast goodput: the module's own `est_rate` read 25–29 kbps at
+/// 2 MHz / MCS0, behind a 115200 UART. Refinable once the sustained-throughput ceiling and the
+/// 400K rebaud land on the bench.
+pub const HALOW_AT_BITRATE_BPS: BitrateBps = BitrateBps::guess(25_000);
 
 #[must_use]
 pub fn descriptor(id: InterfaceId, bitrate: BitrateBps) -> InterfaceDescriptor {
