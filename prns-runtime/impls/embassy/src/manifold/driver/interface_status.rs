@@ -3,7 +3,8 @@ use embassy_sync::signal::Signal;
 use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 
 use crate::interfaces::{
-    AirtimeUtilization, ConnectionState, InterfaceId, InterfaceStatus, TransferRates,
+    AirtimeUtilization, ConnectionState, FrameAccounting, InterfaceId, InterfaceStatus,
+    TransferRates,
 };
 
 pub struct EmbassyInterfaceStatus {
@@ -15,6 +16,11 @@ pub struct EmbassyInterfaceStatus {
     transfer_rates: AtomicU64,
     enabled: AtomicBool,
     enabled_changed: Signal<CriticalSectionRawMutex, bool>,
+    accounts_frames: AtomicBool,
+    frames_in: AtomicU64,
+    frames_malformed: AtomicU64,
+    frames_undecodable: AtomicU64,
+    frames_delivered: AtomicU64,
 }
 
 const AIRTIME_UNPUBLISHED: u32 = u32::MAX;
@@ -32,6 +38,11 @@ impl EmbassyInterfaceStatus {
             transfer_rates: AtomicU64::new(RATES_UNPUBLISHED),
             enabled: AtomicBool::new(true),
             enabled_changed: Signal::new(),
+            accounts_frames: AtomicBool::new(false),
+            frames_in: AtomicU64::new(0),
+            frames_malformed: AtomicU64::new(0),
+            frames_undecodable: AtomicU64::new(0),
+            frames_delivered: AtomicU64::new(0),
         }
     }
 
@@ -105,6 +116,29 @@ impl EmbassyInterfaceStatus {
         let packed = (u64::from(rates.rx_bps) << 32) | u64::from(rates.tx_bps);
         self.transfer_rates.store(packed, Ordering::Relaxed);
     }
+
+    /// Declare that this interface counts frames, so a reader can tell an idle accounted link
+    /// (all-zero) from a family that never counted (`None`). A driver calls this once at bring-up,
+    /// before the first frame, and the counters publish from then on.
+    pub fn account_frames(&self) {
+        self.accounts_frames.store(true, Ordering::Relaxed);
+    }
+
+    pub fn count_frame_in(&self) {
+        self.frames_in.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn count_frame_malformed(&self) {
+        self.frames_malformed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn count_frame_undecodable(&self) {
+        self.frames_undecodable.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn count_frame_delivered(&self) {
+        self.frames_delivered.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 impl InterfaceStatus for EmbassyInterfaceStatus {
@@ -146,6 +180,18 @@ impl InterfaceStatus for EmbassyInterfaceStatus {
         Some(TransferRates {
             rx_bps: (packed >> 32) as u32,
             tx_bps: packed as u32,
+        })
+    }
+
+    fn frame_accounting(&self) -> Option<FrameAccounting> {
+        if !self.accounts_frames.load(Ordering::Relaxed) {
+            return None;
+        }
+        Some(FrameAccounting {
+            frames_in: self.frames_in.load(Ordering::Relaxed),
+            malformed: self.frames_malformed.load(Ordering::Relaxed),
+            undecodable: self.frames_undecodable.load(Ordering::Relaxed),
+            delivered: self.frames_delivered.load(Ordering::Relaxed),
         })
     }
 }

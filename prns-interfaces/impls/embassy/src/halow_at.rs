@@ -180,6 +180,9 @@ impl<R: Read, W: Write> Interface for HalowAtInterface<'_, R, W> {
             status,
             ..
         } = self;
+        // Published before the first frame so an idle link reads as all-zero rather than as a
+        // family that never counted. The distinction is the whole point of the counters.
+        status.account_frames();
         let mut console = AtConsole::new();
         let mut peers: [Option<Peer>; PEER_SLOTS] = [const { None }; PEER_SLOTS];
         let mut reconnect = reconnect_policy.schedule();
@@ -591,12 +594,16 @@ async fn deliver<Seam: InterfaceSeam>(
     started: Instant,
 ) {
     let Some((src, payload)) = split_rx_frame(air_frame) else {
+        // Counted, not logged: a burst that lost its header is exactly the arrival that used to
+        // leave no trace at all, and the console is the one thing a soak cannot spare.
+        status.count_frame_malformed();
         return;
     };
     if src == own_mac {
         return;
     }
     let now = InstantMillis(started.elapsed().as_millis());
+    status.count_frame_in();
     status.add_rx(air_frame.len() as u64);
     throughput.record_rx(now, air_frame.len() as u64);
     status.set_transfer_rates(throughput.rates());
@@ -626,11 +633,15 @@ async fn deliver<Seam: InterfaceSeam>(
     let mut offset = 0;
     while offset < payload.len() {
         match peer.decoder.feed_slice_next(payload, &mut offset) {
-            Ok(Some(frame)) => seam.next_inbound(frame).await,
+            Ok(Some(frame)) => {
+                status.count_frame_delivered();
+                seam.next_inbound(frame).await;
+            }
             Ok(None) => break,
             // An overlong stream segment (lost flag between two senders' bursts) drops and the
-            // scanner realigns at the next flag.
-            Err(_) => {}
+            // scanner realigns at the next flag. Counted because it is indistinguishable from a
+            // dead link otherwise: the bytes already moved rx_bytes on the way in.
+            Err(_) => status.count_frame_undecodable(),
         }
     }
 }
@@ -651,4 +662,200 @@ fn select_peer_slot(peers: &[Option<Peer>; PEER_SLOTS], src: [u8; 6]) -> usize {
         }
     }
     oldest
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use embassy_futures::block_on;
+    use prns_core::interfaces::rns_serial_framing::encode;
+    use prns_core::interfaces::{FrameAccounting, FrameSink, FrameSinkError, InterfaceStatus};
+
+    const OWN: [u8; 6] = [0xAA; 6];
+    const PEER_MAC: [u8; 6] = [0xBB; 6];
+
+    struct TestSink {
+        bytes: HeaplessVec<u8, 2048>,
+    }
+
+    impl FrameSink for TestSink {
+        fn clear(&mut self) {
+            self.bytes.clear();
+        }
+
+        fn frame_len(&self) -> usize {
+            self.bytes.len()
+        }
+
+        fn free_capacity(&self) -> usize {
+            self.bytes.capacity() - self.bytes.len()
+        }
+
+        fn push(&mut self, byte: u8) -> Result<(), FrameSinkError> {
+            self.bytes.push(byte).map_err(|_| FrameSinkError::Full)
+        }
+
+        fn extend_from_slice(&mut self, run: &[u8]) -> Result<(), FrameSinkError> {
+            self.bytes
+                .extend_from_slice(run)
+                .map_err(|_| FrameSinkError::Full)
+        }
+    }
+
+    struct TestSeam {
+        sink: TestSink,
+        committed: usize,
+    }
+
+    impl TestSeam {
+        fn new() -> Self {
+            Self {
+                sink: TestSink {
+                    bytes: HeaplessVec::new(),
+                },
+                committed: 0,
+            }
+        }
+    }
+
+    impl InterfaceSeam for TestSeam {
+        fn fill_entropy(&mut self, bytes: &mut [u8]) {
+            bytes.fill(0);
+        }
+
+        async fn inbound_sink(&mut self) -> &mut dyn FrameSink {
+            &mut self.sink
+        }
+
+        async fn commit_inbound(&mut self) {
+            self.committed += 1;
+        }
+
+        async fn next_outbound(&mut self) -> &[u8] {
+            core::future::pending::<&[u8]>().await
+        }
+    }
+
+    struct Harness {
+        peers: [Option<Peer>; PEER_SLOTS],
+        seam: TestSeam,
+        status: EmbassyInterfaceStatus,
+        throughput: ThroughputLedger,
+        started: Instant,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            let status = EmbassyInterfaceStatus::new(
+                InterfaceId::new([0x11; 8]),
+                ConnectionState::Connected,
+            );
+            status.account_frames();
+            Self {
+                peers: [const { None }; PEER_SLOTS],
+                seam: TestSeam::new(),
+                status,
+                throughput: ThroughputLedger::new(),
+                started: Instant::now(),
+            }
+        }
+
+        fn feed(&mut self, air_frame: &[u8]) {
+            block_on(deliver(
+                air_frame,
+                OWN,
+                &mut self.peers,
+                &mut self.seam,
+                &self.status,
+                &mut self.throughput,
+                self.started,
+            ));
+        }
+
+        fn accounting(&self) -> FrameAccounting {
+            self.status
+                .frame_accounting()
+                .expect("the driver declares frame accounting at bring-up")
+        }
+    }
+
+    fn air_frame(payload: &[u8]) -> HeaplessVec<u8, 512> {
+        let mut frame = HeaplessVec::new();
+        frame
+            .extend_from_slice(&broadcast_header(PEER_MAC))
+            .unwrap();
+        frame.extend_from_slice(payload).unwrap();
+        frame
+    }
+
+    #[test]
+    fn unaccounted_is_not_the_same_answer_as_nothing_arrived() {
+        let status =
+            EmbassyInterfaceStatus::new(InterfaceId::new([0x22; 8]), ConnectionState::Connected);
+        // A family that never counts must not read as an idle counted link.
+        assert_eq!(status.frame_accounting(), None);
+        status.account_frames();
+        assert_eq!(status.frame_accounting(), Some(FrameAccounting::default()));
+    }
+
+    #[test]
+    fn a_headerless_burst_counts_as_malformed_not_as_an_arrival() {
+        let mut harness = Harness::new();
+        // One byte short of a delivery header: firmware noise, and previously a silent `return`.
+        harness.feed(&[0u8; HALOW_AT_HEADER_LEN - 1]);
+
+        let counts = harness.accounting();
+        assert_eq!(counts.malformed, 1);
+        assert_eq!(counts.frames_in, 0);
+        assert_eq!(counts.delivered, 0);
+        assert_eq!(harness.seam.committed, 0);
+    }
+
+    #[test]
+    fn a_whole_frame_counts_in_and_delivered() {
+        let mut harness = Harness::new();
+        let mut encoded = [0u8; 64];
+        let written = encode(b"hello", &mut encoded).unwrap();
+        harness.feed(&air_frame(&encoded[..written]));
+
+        let counts = harness.accounting();
+        assert_eq!(counts.frames_in, 1);
+        assert_eq!(counts.delivered, 1);
+        assert_eq!(counts.undecodable, 0);
+        assert_eq!(harness.seam.committed, 1);
+    }
+
+    #[test]
+    fn our_own_echo_is_neither_an_arrival_nor_a_fault() {
+        let mut harness = Harness::new();
+        let mut frame = HeaplessVec::<u8, 512>::new();
+        frame.extend_from_slice(&broadcast_header(OWN)).unwrap();
+        frame.extend_from_slice(b"echo").unwrap();
+        harness.feed(&frame);
+
+        assert_eq!(harness.accounting(), FrameAccounting::default());
+    }
+
+    #[test]
+    fn a_stream_that_never_closes_counts_undecodable_rather_than_vanishing() {
+        let mut harness = Harness::new();
+        // A lost flag between two senders' bursts: the segment grows past the decoder's frame
+        // capacity and is discarded at resync. This is the arrival that used to leave no trace,
+        // and it is the one that has to be distinguishable from a dead link.
+        let filler = [0x41u8; HALOW_AT_CHUNK_CAP];
+        let mut fed = 0;
+        while harness.accounting().undecodable == 0 {
+            harness.feed(&air_frame(&filler));
+            fed += 1;
+            assert!(fed < 64, "decoder never rejected an unterminated stream");
+        }
+
+        let counts = harness.accounting();
+        assert_eq!(counts.frames_in, fed);
+        assert_eq!(counts.delivered, 0);
+        assert!(counts.undecodable >= 1);
+        // The bytes moved rx_bytes on the way in, which is exactly why the byte counter alone
+        // cannot tell this apart from a healthy link.
+        assert!(harness.status.rx_bytes() > 0);
+    }
 }
