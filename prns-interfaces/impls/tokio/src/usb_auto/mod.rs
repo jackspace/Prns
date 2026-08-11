@@ -64,6 +64,7 @@ impl RemoteVitalsStore {
             tx_bytes: report.tx_bytes,
             transfer_rates: None,
             frames: report.frames,
+            uptime_ms: Some(report.uptime_ms),
         };
         self.entries
             .lock()
@@ -773,6 +774,7 @@ mod tests {
         let report = VitalsReport {
             interface_id: radio_id,
             connection: ConnectionState::Connected,
+            uptime_ms: 1_923_004,
             rx_bytes: 202,
             tx_bytes: 77,
             frames: Some(FrameAccounting {
@@ -801,6 +803,7 @@ mod tests {
         assert_eq!(remote.connection, ConnectionState::Connected);
         assert_eq!(remote.rx_bytes, 202);
         assert_eq!(remote.tx_bytes, 77);
+        assert_eq!(remote.uptime_ms, Some(1_923_004));
         let frames = remote.frames.expect("the radio accounts for frames");
         assert_eq!(
             (

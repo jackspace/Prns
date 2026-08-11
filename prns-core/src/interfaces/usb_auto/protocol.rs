@@ -104,16 +104,22 @@ impl PeerProfile {
 /// so the peer can watch a radio it has no console to. `frames` is `None` when the interface
 /// family does not count frames — which a reader must not collapse into all-zero, because
 /// "unaccounted" and "nothing arrived" are different answers.
+///
+/// `uptime_ms` is the reporting node's own monotonic clock at the moment the report was built,
+/// so every sample dates itself. A host stamping arrival time instead would fold its polling
+/// gaps into the timeline — and when the question is "when did arrivals stop", that resolution
+/// is the point.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VitalsReport {
     pub interface_id: InterfaceId,
     pub connection: ConnectionState,
+    pub uptime_ms: u64,
     pub rx_bytes: u64,
     pub tx_bytes: u64,
     pub frames: Option<FrameAccounting>,
 }
 
-const VITALS_FIXED_LEN: usize = 8 + 1 + 8 + 8 + 1;
+const VITALS_FIXED_LEN: usize = 8 + 1 + 8 + 8 + 8 + 1;
 const VITALS_FRAMES_LEN: usize = 4 * 8;
 const VITALS_FRAMES_ABSENT: u8 = 0;
 const VITALS_FRAMES_PRESENT: u8 = 1;
@@ -187,16 +193,17 @@ impl Message<'_> {
                 let body = &mut slot[MESSAGE_KIND_LEN..];
                 body[..8].copy_from_slice(report.interface_id.as_bytes());
                 body[8] = report.connection.as_u8();
-                body[9..17].copy_from_slice(&report.rx_bytes.to_be_bytes());
-                body[17..25].copy_from_slice(&report.tx_bytes.to_be_bytes());
+                body[9..17].copy_from_slice(&report.uptime_ms.to_be_bytes());
+                body[17..25].copy_from_slice(&report.rx_bytes.to_be_bytes());
+                body[25..33].copy_from_slice(&report.tx_bytes.to_be_bytes());
                 match report.frames {
-                    None => body[25] = VITALS_FRAMES_ABSENT,
+                    None => body[33] = VITALS_FRAMES_ABSENT,
                     Some(frames) => {
-                        body[25] = VITALS_FRAMES_PRESENT;
-                        body[26..34].copy_from_slice(&frames.frames_in.to_be_bytes());
-                        body[34..42].copy_from_slice(&frames.malformed.to_be_bytes());
-                        body[42..50].copy_from_slice(&frames.undecodable.to_be_bytes());
-                        body[50..58].copy_from_slice(&frames.delivered.to_be_bytes());
+                        body[33] = VITALS_FRAMES_PRESENT;
+                        body[34..42].copy_from_slice(&frames.frames_in.to_be_bytes());
+                        body[42..50].copy_from_slice(&frames.malformed.to_be_bytes());
+                        body[50..58].copy_from_slice(&frames.undecodable.to_be_bytes());
+                        body[58..66].copy_from_slice(&frames.delivered.to_be_bytes());
                     }
                 }
                 Ok(total)
@@ -259,7 +266,7 @@ fn decode_vitals(body: &[u8]) -> Result<VitalsReport, MalformedMessage> {
         .ok_or(MalformedMessage::MalformedVitals)?;
     let mut id = [0u8; 8];
     id.copy_from_slice(&fixed[..8]);
-    let frames = match (fixed[25], frames_body.len()) {
+    let frames = match (fixed[33], frames_body.len()) {
         (VITALS_FRAMES_ABSENT, 0) => None,
         (VITALS_FRAMES_PRESENT, VITALS_FRAMES_LEN) => Some(FrameAccounting {
             frames_in: be_u64(&frames_body[..8]),
@@ -272,8 +279,9 @@ fn decode_vitals(body: &[u8]) -> Result<VitalsReport, MalformedMessage> {
     Ok(VitalsReport {
         interface_id: InterfaceId::new(id),
         connection: ConnectionState::from_u8(fixed[8]),
-        rx_bytes: be_u64(&fixed[9..17]),
-        tx_bytes: be_u64(&fixed[17..25]),
+        uptime_ms: be_u64(&fixed[9..17]),
+        rx_bytes: be_u64(&fixed[17..25]),
+        tx_bytes: be_u64(&fixed[25..33]),
         frames,
     })
 }
@@ -401,14 +409,14 @@ mod tests {
         (
             any::<[u8; 8]>(),
             any::<u8>(),
-            any::<u64>(),
-            any::<u64>(),
+            any::<(u64, u64, u64)>(),
             prop::option::of((any::<u64>(), any::<u64>(), any::<u64>(), any::<u64>())),
         )
             .prop_map(
-                |(id, connection, rx_bytes, tx_bytes, frames)| VitalsReport {
+                |(id, connection, (uptime_ms, rx_bytes, tx_bytes), frames)| VitalsReport {
                     interface_id: InterfaceId::new(id),
                     connection: ConnectionState::from_u8(connection),
+                    uptime_ms,
                     rx_bytes,
                     tx_bytes,
                     frames: frames.map(|(frames_in, malformed, undecodable, delivered)| {
@@ -585,6 +593,7 @@ mod tests {
         VitalsReport {
             interface_id: InterfaceId::new(*b"halowat0"),
             connection: ConnectionState::Connected,
+            uptime_ms: 1_923_004,
             rx_bytes: 0x0102_0304_0506_0708,
             tx_bytes: 42,
             frames,

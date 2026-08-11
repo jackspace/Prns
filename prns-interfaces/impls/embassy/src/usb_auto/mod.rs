@@ -271,6 +271,9 @@ where
                             let report = Message::Vitals(VitalsReport {
                                 interface_id: source.id(),
                                 connection: source.connection(),
+                                // The board's own monotonic clock, so each sample dates itself
+                                // regardless of host polling gaps.
+                                uptime_ms: Instant::now().as_millis(),
                                 rx_bytes: source.rx_bytes(),
                                 tx_bytes: source.tx_bytes(),
                                 frames: source.frame_accounting(),

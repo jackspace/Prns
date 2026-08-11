@@ -73,6 +73,9 @@ pub struct InterfaceVitals {
     pub transfer_rates: Option<TransferRates>,
     /// `None` when the family does not account for frames — not the same answer as all-zero.
     pub frames: Option<FrameAccounting>,
+    /// The reporting node's own monotonic clock when this snapshot was produced. `Some` only
+    /// for snapshots relayed from a remote node; local reads have no use for it.
+    pub uptime_ms: Option<u64>,
 }
 
 impl InterfaceVitals {
@@ -85,6 +88,7 @@ impl InterfaceVitals {
             tx_bytes: status.tx_bytes(),
             transfer_rates: status.transfer_rates(),
             frames: status.frame_accounting(),
+            uptime_ms: None,
         }
     }
 }
