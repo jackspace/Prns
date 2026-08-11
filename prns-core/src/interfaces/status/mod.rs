@@ -71,6 +71,8 @@ pub struct InterfaceVitals {
     pub rx_bytes: u64,
     pub tx_bytes: u64,
     pub transfer_rates: Option<TransferRates>,
+    /// `None` when the family does not account for frames — not the same answer as all-zero.
+    pub frames: Option<FrameAccounting>,
 }
 
 impl InterfaceVitals {
@@ -82,6 +84,7 @@ impl InterfaceVitals {
             rx_bytes: status.rx_bytes(),
             tx_bytes: status.tx_bytes(),
             transfer_rates: status.transfer_rates(),
+            frames: status.frame_accounting(),
         }
     }
 }

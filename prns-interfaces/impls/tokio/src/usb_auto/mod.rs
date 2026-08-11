@@ -19,11 +19,11 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use prns_core::interfaces::usb_auto::{
-    self as contract, Capabilities, HostInbound, Message, NodeTag,
+    self as contract, Capabilities, HostInbound, Message, NodeTag, VitalsReport,
 };
 use prns_core::interfaces::{
     ConfiguredInterfacePolicy, ConnectionState, EffectiveInterfacePolicy, InterfaceDescriptor,
-    InterfaceId, InterfaceKind,
+    InterfaceId, InterfaceKind, InterfaceVitals,
 };
 use prns_runtime::manifold::driver::{
     tokio_grant_lane, TokioGrantConsumer, TokioGrantProducer, TokioInterfaceStatus,
@@ -40,6 +40,49 @@ const LIVENESS_TIMEOUT: Duration = Duration::from_secs(6);
 const RECENT_LINK_GRACE: Duration = Duration::from_secs(3);
 /// Backs off a busy or re-enumerating target so failures do not become a once-per-second error storm.
 const OPEN_FAILURE_BACKOFF: Duration = Duration::from_secs(5);
+/// A remote report older than this drops out of the status view: three missed device cadences,
+/// so an unplugged board's radios stop being reported as if someone were still watching them.
+const REMOTE_VITALS_STALE_AFTER: Duration = Duration::from_secs(30);
+
+/// One remembered remote report: the vitals and when they arrived.
+type RemoteVitalsEntry = (InterfaceVitals, std::time::Instant);
+
+/// The vitals that devices behind this host's ports volunteered, keyed by the remote interface's
+/// id (unique by construction: kind ++ sha256(channel tag)). Reads evict what has gone stale.
+#[derive(Clone, Default)]
+struct RemoteVitalsStore {
+    entries: Arc<std::sync::Mutex<HashMap<[u8; 8], RemoteVitalsEntry>>>,
+}
+
+impl RemoteVitalsStore {
+    fn record(&self, report: VitalsReport) {
+        let vitals = InterfaceVitals {
+            id: report.interface_id,
+            connection: report.connection,
+            failure_reason: None,
+            rx_bytes: report.rx_bytes,
+            tx_bytes: report.tx_bytes,
+            transfer_rates: None,
+            frames: report.frames,
+        };
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                *report.interface_id.as_bytes(),
+                (vitals, std::time::Instant::now()),
+            );
+    }
+
+    fn fresh(&self) -> Vec<InterfaceVitals> {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        entries.retain(|_, (_, seen)| seen.elapsed() < REMOTE_VITALS_STALE_AFTER);
+        entries.values().map(|(vitals, _)| *vitals).collect()
+    }
+}
 
 struct Port {
     id: String,
@@ -88,6 +131,7 @@ struct PortContext {
     node_tag: NodeTag,
     status: TokioInterfaceStatus,
     events: UnboundedSender<PortEvent>,
+    remote_vitals: RemoteVitalsStore,
 }
 
 /// Port reads backpressure when inbound is full; broadcast fan-out drops for a full outbound lane.
@@ -101,6 +145,7 @@ pub struct UsbAutoHost<Scan, Open> {
     policy: EffectiveInterfacePolicy,
     status: TokioInterfaceStatus,
     rescan: Arc<Notify>,
+    remote_vitals: RemoteVitalsStore,
 }
 
 impl<Scan, Open> UsbAutoHost<Scan, Open> {
@@ -131,6 +176,7 @@ impl<Scan, Open> UsbAutoHost<Scan, Open> {
             policy,
             status: TokioInterfaceStatus::new(id, ConnectionState::Initializing),
             rescan,
+            remote_vitals: RemoteVitalsStore::default(),
         }
     }
 
@@ -187,6 +233,7 @@ where
             node_tag: self.node_tag,
             status: self.status.clone(),
             events: events_tx,
+            remote_vitals: self.remote_vitals.clone(),
         };
         let rescan = self.rescan.clone();
         let mut ports: Vec<Port> = Vec::new();
@@ -427,7 +474,7 @@ async fn serve_port<S>(
     loop {
         tokio::select! {
             _ = probe.tick(), if !confirmed => {
-                let hello = Message::Hello(Capabilities::host());
+                let hello = Message::Hello(Capabilities::host().with_vitals());
                 if write_message(&mut stream, &hello, &mut frame_buf, &context.status)
                     .await
                     .is_err()
@@ -436,7 +483,7 @@ async fn serve_port<S>(
                 }
             }
             _ = liveness_probe.tick(), if confirmed => {
-                let hello = Message::Hello(Capabilities::host());
+                let hello = Message::Hello(Capabilities::host().with_vitals());
                 if write_message(&mut stream, &hello, &mut frame_buf, &context.status)
                     .await
                     .is_err()
@@ -462,7 +509,7 @@ async fn serve_port<S>(
                         HostInbound::AnswerHandshake => {
                             let ack = Message::HelloAck {
                                 tag: context.node_tag,
-                                capabilities: Capabilities::host(),
+                                capabilities: Capabilities::host().with_vitals(),
                             };
                             if write_message(&mut stream, &ack, &mut frame_buf, &context.status)
                                 .await
@@ -483,10 +530,11 @@ async fn serve_port<S>(
                                 let _ = notify.send(key);
                             }
                         }
-                        // Not stored yet: the vitals store and the surface that reads it are the
-                        // other half of this seam. Until they exist, a report proves the link
-                        // works and nothing else.
-                        HostInbound::Vitals(_) => {}
+                        HostInbound::Vitals(report) => {
+                            if confirmed {
+                                context.remote_vitals.record(report);
+                            }
+                        }
                         HostInbound::Ignore => {}
                     }
                 }
@@ -534,8 +582,13 @@ where
 impl<Scan, Open> prns_core::interfaces::ReportsStatus for UsbAutoHost<Scan, Open> {
     fn status_view(&self) -> Option<prns_core::interfaces::StatusView> {
         let status = self.status();
+        let remote_vitals = self.remote_vitals.clone();
         Some(std::sync::Arc::new(move || {
-            std::vec![prns_core::interfaces::InterfaceVitals::of(&status)]
+            // The host's own vitals first, then whatever the boards behind its ports volunteered
+            // and have kept fresh — the radios a daemon-owned console can never watch directly.
+            let mut view = std::vec![prns_core::interfaces::InterfaceVitals::of(&status)];
+            view.extend(remote_vitals.fresh());
+            view
         }))
     }
 
@@ -664,6 +717,103 @@ mod tests {
             matches!(message, Message::Hello(_)).then_some(())
         })
         .await;
+    }
+
+    #[tokio::test]
+    async fn a_volunteered_report_reaches_the_status_view_and_the_probe_asks_for_it() {
+        use prns_core::interfaces::usb_auto::VitalsReport;
+        use prns_core::interfaces::{FrameAccounting, ReportsStatus};
+
+        let (host_wire, mut device) = tokio::io::duplex(4096);
+        let mut host_wire = Some(host_wire);
+        let open = move |_name: String| {
+            let taken = host_wire.take();
+            async move { taken.ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected)) }
+        };
+        let scan = || std::vec![String::from("loopback")];
+
+        let host = UsbAutoHost::new(host_id(), scan, open, Arc::new(Notify::new()));
+        let status = host.status();
+        let view = host.status_view().expect("the usb host reports status");
+
+        let (notify_tx, _notify_rx) = unbounded_channel::<InterfaceId>();
+        let (in_tx, _in_rx) = tokio_grant_lane(contract::MAX_FRAMED_BYTES, 8);
+        let (_out_tx, out_rx) = tokio_grant_lane(contract::MAX_FRAMED_BYTES, 8);
+        let seam = TokioInterfaceSeam::new(host_id(), in_tx, notify_tx, out_rx);
+        tokio::spawn(host.run(seam));
+
+        let mut decoder = contract::Decoder::new();
+        let probe = read_until(&mut device, &mut decoder, |message| match message {
+            Message::Hello(capabilities) => Some(capabilities),
+            _ => None,
+        })
+        .await;
+        assert!(
+            probe.supports_vitals(),
+            "the host's probe must ask for vitals"
+        );
+
+        let mut frame = [0u8; contract::MAX_FRAMED_BYTES];
+        let ack = Message::HelloAck {
+            tag: NodeTag([0xAB; 8]),
+            capabilities: Capabilities::none().with_vitals(),
+        };
+        let n = ack.write_framed(&mut frame).expect("frames the ack");
+        device.write_all(&frame[..n]).await.expect("the host reads");
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while status.connection() != ConnectionState::Connected {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the host confirms the link within the window");
+
+        let radio_id = InterfaceId::new(*b"halowat0");
+        let report = VitalsReport {
+            interface_id: radio_id,
+            connection: ConnectionState::Connected,
+            rx_bytes: 202,
+            tx_bytes: 77,
+            frames: Some(FrameAccounting {
+                frames_in: 61,
+                malformed: 2,
+                undecodable: 17,
+                delivered: 40,
+            }),
+        };
+        let n = Message::Vitals(report)
+            .write_framed(&mut frame)
+            .expect("frames the report");
+        device.write_all(&frame[..n]).await.expect("the host reads");
+
+        let remote = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(remote) = view().into_iter().find(|vitals| vitals.id == radio_id) {
+                    break remote;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the report reaches the status view within the window");
+
+        assert_eq!(remote.connection, ConnectionState::Connected);
+        assert_eq!(remote.rx_bytes, 202);
+        assert_eq!(remote.tx_bytes, 77);
+        let frames = remote.frames.expect("the radio accounts for frames");
+        assert_eq!(
+            (
+                frames.frames_in,
+                frames.malformed,
+                frames.undecodable,
+                frames.delivered
+            ),
+            (61, 2, 17, 40)
+        );
+        // The host's own entry stays first, so existing single-entry consumers see what they
+        // always saw.
+        assert_eq!(view()[0].id, host_id());
     }
 
     #[test]
