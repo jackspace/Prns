@@ -168,10 +168,6 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         wifi.is_some(),
         tcp_stack.is_some()
     );
-    #[cfg(not(feature = "wifi-auto"))]
-    let wifi: Option<AutoWifi<'static, MEMBERS>> = None;
-    #[cfg(not(feature = "wifi-auto"))]
-    let tcp_stack: Option<Stack<'static>> = None;
     let node_bootstrap = crate::identity::bootstrap_node_identity();
     crate::identity::log_persistence("node", node_bootstrap.persistence());
     let ble_bootstrap = crate::identity::bootstrap_ble_identity();
@@ -190,6 +186,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         .destination_hashes()
         .expect("the hopspot destination names are valid");
     let node_page_destination = destination_hashes.node_page;
+    #[cfg(feature = "bluetooth-auto")]
     let ble_identity = Some(ble_bootstrap.into_identity());
 
     #[cfg(feature = "esp-now")]
@@ -235,14 +232,15 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     });
     #[cfg(feature = "wifi-auto")]
     boot_stage(BootPhase::TcpReady);
-    #[cfg(not(feature = "wifi-auto"))]
-    let tcp_built: Option<(
-        TcpClient<'static>,
-        &'static EmbassyInterfaceStatus,
-        InterfaceId,
-    )> = None;
+    // Only the id and status escape this block, so a board without TCP never names `TcpClient`.
+    #[cfg(feature = "tcp")]
     let tcp_status = tcp_built.as_ref().map(|(_, status, _)| *status);
+    #[cfg(feature = "tcp")]
     let tcp_id = tcp_built.as_ref().map(|(_, _, id)| *id);
+    #[cfg(not(feature = "tcp"))]
+    let tcp_status: Option<&'static EmbassyInterfaceStatus> = None;
+    #[cfg(not(feature = "tcp"))]
+    let tcp_id: Option<InterfaceId> = None;
 
     let recipe = PrnsNodeRecipe {
         transport_identity: Some(transport_secret),
@@ -261,8 +259,12 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     let espnow_cfg = espnow.as_ref().map(|e| e.descriptor());
     #[cfg(feature = "halow-at")]
     let halow_cfg = halow.descriptor();
+    #[cfg(feature = "tcp")]
     let tcp_cfg = tcp_built.as_ref().map(|(t, _, _)| t.descriptor());
+    #[cfg(feature = "wifi-auto")]
     let has_wifi = wifi.is_some();
+    #[cfg(not(feature = "wifi-auto"))]
+    let has_wifi = false;
 
     let usb_outbound = crate::storage::allocate_manifold_outbound::<EMBEDDED_MAX_WIRE_FRAME_LEN>(
         OUTBOUND_BURST_DEPTH,
@@ -274,6 +276,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
             usb_outbound,
         )
         .expect("USB lane is available");
+    #[cfg(feature = "tcp")]
     let tcp_lane = tcp_cfg.map(|descriptor| {
         let outbound = crate::storage::allocate_manifold_outbound::<EMBEDDED_MAX_WIRE_FRAME_LEN>(
             OUTBOUND_BURST_DEPTH,
@@ -380,6 +383,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     #[cfg(feature = "halow-at")]
     let halow_seam = halow_lane.into_seam(NOTIFY.sender(), hardware_entropy);
 
+    #[cfg(feature = "tcp")]
     let tcp = tcp_built.zip(tcp_lane).map(|((tcp, _, _), lane)| {
         let seam = lane.into_seam(NOTIFY.sender(), hardware_entropy);
         (tcp, seam)
@@ -400,11 +404,17 @@ pub(super) async fn run_core<B: Esp32S3Board>(
 
     spawner.spawn(button_task(button).expect("button task fits"));
 
+    // `wifi_status` keeps the concrete `AutoWifiStatus` (the sleep and toggle paths need its
+    // station controls), so every use of it is gated; only the id crosses into shared code.
+    #[cfg(feature = "wifi-auto")]
     let wifi_status = wifi.as_ref().map(|(interface, _)| interface.status());
+    #[cfg(feature = "wifi-auto")]
     let wifi_id = wifi_status.as_ref().map(|status| {
         use personal_rns::interfaces::InterfaceStatus;
         status.id()
     });
+    #[cfg(not(feature = "wifi-auto"))]
+    let wifi_id: Option<InterfaceId> = None;
     #[cfg(feature = "wifi-auto")]
     if let Some((interface, fleet)) = wifi {
         let data_buf: &'static mut [u8] = alloc::vec![0u8; wifi_auto_contract::HARDWARE_MTU].leak();
@@ -494,9 +504,31 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                 ticks_to_battery = RENDER_TICKS_PER_BATTERY;
             }
 
+            // The Wi-Fi shims mirror LoRa's and HaLow's: the renderer sees `None` and an empty
+            // fleet instead of the `AutoWifiStatus` type, so it needs no `#[cfg]` of its own.
+            #[cfg(feature = "wifi-auto")]
+            let (wifi_card_status, wifi_members) = {
+                let mut members: HVec<&'static dyn InterfaceStatus, MEMBERS> = HVec::new();
+                if let Some(status) = wifi_status.as_ref() {
+                    for member in status.members() {
+                        let _ = members.push(member);
+                    }
+                }
+                let status = wifi_status
+                    .as_ref()
+                    .map(|status| status as &dyn InterfaceStatus);
+                (status, members)
+            };
+            #[cfg(not(feature = "wifi-auto"))]
+            let (wifi_card_status, wifi_members): (
+                Option<&dyn InterfaceStatus>,
+                HVec<&'static dyn InterfaceStatus, 1>,
+            ) = (None, HVec::new());
+
             let snapshots = build_snapshots(
                 usb_status,
-                wifi_status.as_ref(),
+                wifi_card_status,
+                &wifi_members,
                 tcp_status,
                 lora_card_status,
                 espnow_card_status,
@@ -506,14 +538,26 @@ pub(super) async fn run_core<B: Esp32S3Board>(
             let tcp_card_config = wifi_config.tcp_client.as_ref();
             #[cfg(not(feature = "wifi-auto"))]
             let tcp_card_config: Option<&HopspotTcpClientConfig> = None;
+            #[cfg(feature = "wifi-auto")]
+            let wifi_kind = if !wifi_config.has_station() {
+                screen::CardKind::Wifi
+            } else if wifi_status
+                .as_ref()
+                .is_some_and(|status| status.is_station_uplink_enabled())
+            {
+                screen::CardKind::WifiStation
+            } else {
+                screen::CardKind::WifiStationDisabled
+            };
+            #[cfg(not(feature = "wifi-auto"))]
+            let wifi_kind = screen::CardKind::Wifi;
             let mut cards = build_cards(
                 &snapshots,
                 usb_status.id(),
                 wifi_id,
                 tcp_id,
                 tcp_card_config,
-                wifi_status.as_ref(),
-                &wifi_config,
+                wifi_kind,
                 lora_card_id,
                 espnow_card_id,
                 halow_card_id,
@@ -663,6 +707,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                             if let Some(status) = lora_card_status {
                                 status.disable();
                             }
+                            #[cfg(feature = "wifi-auto")]
                             if let Some(status) = wifi_status.as_ref() {
                                 status.disable();
                                 status.disable_station_uplink();
@@ -695,6 +740,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                             if let Some(status) = lora_card_status {
                                 status.enable();
                             }
+                            #[cfg(feature = "wifi-auto")]
                             if let Some(status) = wifi_status.as_ref() {
                                 status.enable_station_uplink();
                                 status.enable();
@@ -759,6 +805,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                                         handled = true;
                                     }
                                 }
+                                #[cfg(feature = "wifi-auto")]
                                 if !handled {
                                     if let Some(status) = wifi_status.as_ref() {
                                         if card.id() == status.id() {
@@ -803,6 +850,7 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                             }
                         }
                         screen::UiAction::ToggleStationUplink => {
+                            #[cfg(feature = "wifi-auto")]
                             if let Some(status) = wifi_status.as_ref() {
                                 let notice = if status.is_station_uplink_enabled() {
                                     screen::UiNotice::DisconnectingAp
@@ -979,6 +1027,18 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         }
         render.await;
     }
+    // A board with neither 2.4 GHz radio: without this arm the firmware links but spawns nothing,
+    // so the interfaces it does carry never run. `tcp` and `esp-now` cannot be reached here -
+    // both come up through the Wi-Fi stack, and `tcp` implies `wifi-auto` in Cargo.toml.
+    #[cfg(all(not(feature = "bluetooth-auto"), not(feature = "wifi-auto")))]
+    {
+        let _ = has_wifi;
+        #[cfg(feature = "lora")]
+        spawner.spawn(lora_task(lora, lora_seam).expect("LoRa task fits"));
+        #[cfg(feature = "halow-at")]
+        spawner.spawn(halow_task(halow, halow_seam).expect("HaLow task fits"));
+        render.await;
+    }
 }
 
 #[cfg(feature = "lora")]
@@ -999,6 +1059,7 @@ async fn halow_task(interface: S3HalowInterface, seam: S3HalowSeam) {
     interface.run(seam).await
 }
 
+#[cfg(feature = "tcp")]
 #[embassy_executor::task]
 async fn tcp_task(interface: TcpClient<'static>, seam: S3TcpSeam) {
     allocator_api2::boxed::Box::pin_in(interface.run(seam), crate::storage::PsramAlloc).await

@@ -46,9 +46,9 @@ mod identity;
 mod persistence;
 #[cfg(all(target_arch = "xtensa", feature = "usb"))]
 pub mod s3;
-#[cfg(any(test, target_arch = "xtensa"))]
+#[cfg(all(any(test, target_arch = "xtensa"), feature = "wifi-auto"))]
 mod station_recovery;
 #[cfg(any(target_arch = "riscv32", target_arch = "xtensa"))]
 mod storage;
-#[cfg(any(test, target_arch = "xtensa"))]
+#[cfg(all(any(test, target_arch = "xtensa"), feature = "wifi-auto"))]
 mod wifi_data_path_recovery;

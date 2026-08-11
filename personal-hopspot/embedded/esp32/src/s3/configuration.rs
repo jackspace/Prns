@@ -2,6 +2,8 @@ use super::*;
 
 // The config types stay compiled on every board: they are pure data the card renderer reads, and
 // a board without the radios simply carries an empty one. Only the behavior below is gated.
+// Kept compiled without the radio so the renderer can hold an empty config; only Wi-Fi reads it.
+#[cfg_attr(not(feature = "wifi-auto"), allow(dead_code))]
 #[derive(Clone, Debug, Default)]
 pub(super) struct HopspotWifiConfig {
     pub(super) ssid: String,
@@ -16,6 +18,7 @@ pub(super) struct HopspotTcpClientConfig {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "tcp"), allow(dead_code))]
 pub(super) enum HopspotTcpClientHost {
     Ipv4(core::net::Ipv4Addr),
     Hostname(String),

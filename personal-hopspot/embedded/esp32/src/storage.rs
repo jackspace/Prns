@@ -55,7 +55,8 @@ const _: () = assert!(
 #[derive(Default, Clone, Copy)]
 pub struct PsramAlloc;
 
-#[cfg(target_arch = "xtensa")]
+// Only the Wi-Fi stack's socket buffers use this.
+#[cfg(all(target_arch = "xtensa", feature = "wifi-auto"))]
 pub fn allocate_psram<T>(value: T) -> &'static mut T {
     Box::leak(Box::new_in(value, PsramAlloc))
 }

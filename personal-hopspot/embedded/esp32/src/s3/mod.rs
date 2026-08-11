@@ -30,9 +30,13 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{select3, Either3};
 #[cfg(feature = "wifi-auto")]
 use embassy_net::tcp::TcpSocket;
+#[cfg(feature = "wifi-auto")]
 use embassy_net::udp::{PacketMetadata, UdpSocket};
+#[cfg(feature = "wifi-auto")]
+use embassy_net::Stack;
+#[cfg(feature = "wifi-auto")]
 use embassy_net::{
-    Config as NetConfig, ConfigV6, DhcpConfig, IpEndpoint, Ipv6Cidr, Runner, Stack, StackResources,
+    Config as NetConfig, ConfigV6, DhcpConfig, IpEndpoint, Ipv6Cidr, Runner, StackResources,
     StaticConfigV6,
 };
 #[cfg(feature = "wifi-auto")]
@@ -40,6 +44,7 @@ use embassy_net::{IpAddress, Ipv4Address, Ipv4Cidr, StaticConfigV4};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
+#[cfg(feature = "wifi-auto")]
 use embassy_sync::signal::Signal;
 #[cfg(feature = "wifi-auto")]
 use embassy_time::with_timeout;
@@ -92,10 +97,12 @@ use personal_rns::interfaces::halow_at::{
 use personal_rns::interfaces::lora::{AirtimePolicy, DEFAULT_915_PROFILE, LORA_MAX_PAYLOAD};
 use personal_rns::interfaces::usb_auto::device_descriptor;
 use personal_rns::interfaces::wifi_auto as wifi_auto_contract;
+#[cfg(feature = "tcp")]
 use personal_rns::interfaces::BitrateBps;
+#[cfg(feature = "wifi-auto")]
+use personal_rns::interfaces::MacAddress;
 use personal_rns::interfaces::{
-    ConnectionState, InterfaceId, InterfaceKind, InterfaceSnapshot, InterfaceStatus, MacAddress,
-    Membership,
+    ConnectionState, InterfaceId, InterfaceKind, InterfaceSnapshot, InterfaceStatus, Membership,
 };
 #[cfg(feature = "lora")]
 use personal_rns::lora::{
@@ -108,10 +115,12 @@ use personal_rns::manifold::interface_seam::{Interface, EMBEDDED_MAX_WIRE_FRAME_
 use personal_rns::manifold::reconnect::ReconnectPolicy;
 #[cfg(feature = "lora")]
 use personal_rns::radios::sx126x::Sx126x;
+#[cfg(any(feature = "wifi-auto", feature = "bluetooth-auto"))]
+use personal_rns::runtime::Fleet;
 use personal_rns::runtime::{
     minimum_interface_store_capacity, minimum_manifold_notification_capacity, CompletionPool,
-    EmbassyInterfaceStore, Fleet, ManifoldLaneSet, PrnsEvent, PrnsNode, PrnsNodeHandle,
-    PrnsNodeRecipe, SharedNorFlash, StaticManifoldLane,
+    EmbassyInterfaceStore, ManifoldLaneSet, PrnsEvent, PrnsNode, PrnsNodeHandle, PrnsNodeRecipe,
+    SharedNorFlash, StaticManifoldLane,
 };
 use personal_rns::storage::StorageLayout;
 #[cfg(feature = "tcp")]
@@ -148,6 +157,7 @@ esp_app_desc!();
 const AP_IPV4: [u8; 4] = [192, 168, 4, 1];
 #[cfg(feature = "wifi-auto")]
 const CAPTIVE_PORTAL_HOST: &str = "192.168.4.1";
+#[cfg(feature = "wifi-auto")]
 const CAPTIVE_PORTAL_URL: &str = "http://192.168.4.1/";
 #[cfg(feature = "wifi-auto")]
 const CAPTIVE_PORTAL_API_URL: &str = "http://192.168.4.1/captive-portal/api";
@@ -180,30 +190,44 @@ const HOPSPOT_TCP_DEFAULT_PORT: u16 = 4242;
 /// Fallback Wi-Fi network the board joins as a station, read at build time. Normal flashing writes the
 /// same values into the reserved `hopcfg` flash slot so the published firmware artifact can stay
 /// generic.
+#[cfg(feature = "wifi-auto")]
 const WIFI_SSID: &str = match option_env!("HOPSPOT_WIFI_SSID") {
     Some(ssid) => ssid,
     None => "",
 };
+#[cfg(feature = "wifi-auto")]
 const WIFI_PASSWORD: &str = match option_env!("HOPSPOT_WIFI_PASSWORD") {
     Some(password) => password,
     None => "",
 };
 
+#[cfg(feature = "tcp")]
 const HOPSPOT_TCP_TARGET: &str = match option_env!("HOPSPOT_TCP_TARGET") {
     Some(target) => target,
     None => "",
 };
 /// The board's claim about its pipe to the LAN node: it sets the declared MTU tier, which the
 /// manifold then clamps to the embedded ceiling. A 2.4 GHz station's honest order of magnitude.
+#[cfg(feature = "tcp")]
 const TCP_BITRATE_BPS: BitrateBps = wifi_auto_contract::WIFI_EMBEDDED_BITRATE_CEILING_BPS;
+#[cfg(feature = "tcp")]
 const TCP_SOCKET_BUFFER_BYTES: usize = 4 * 1_024;
 
-const LANE_COUNT: usize = 3
+/// One lane per interface the board actually carries. USB is the only unconditional one; the base
+/// used to be a literal 3 because every S3 board had Wi-Fi and TCP too. The arithmetic is unchanged
+/// for every board that selects them.
+const LANE_COUNT: usize = 1
+    + cfg!(feature = "wifi-auto") as usize
+    + cfg!(feature = "tcp") as usize
     + cfg!(feature = "lora") as usize
     + cfg!(feature = "bluetooth-auto") as usize
     + cfg!(feature = "esp-now") as usize
     + cfg!(feature = "halow-at") as usize;
+/// The Wi-Fi fleet's size. A board without the radio has no fleet to hold.
+#[cfg(feature = "wifi-auto")]
 const MEMBERS: usize = 24;
+#[cfg(not(feature = "wifi-auto"))]
+const MEMBERS: usize = 0;
 #[cfg(feature = "bluetooth-auto")]
 pub const BLE_PEER_CAPACITY: usize = EMBEDDED_BLE_PEER_CAPACITY;
 #[cfg(feature = "bluetooth-auto")]
@@ -215,6 +239,7 @@ const INTERFACE_CAPACITY: usize = 3
     + BLE_PEER_CAPACITY
     + cfg!(feature = "esp-now") as usize
     + cfg!(feature = "halow-at") as usize;
+#[cfg(feature = "wifi-auto")]
 const WIFI_SUPERVISOR_ID: InterfaceId =
     InterfaceId::new([InterfaceKind::AutoWifi as u8, 0, 0, 0, 0, 0, 0, 0]);
 const LANE_DEPTH: usize = 1;
@@ -263,6 +288,7 @@ type S3EspNowSeam = EmbassyInterfaceSeam<'static, Mtx, NOTIFY_CAP, ESP_NOW_V2_AI
 type S3HalowInterface = HalowAtInterface<'static, UartRx<'static, Async>, UartTx<'static, Async>>;
 #[cfg(feature = "halow-at")]
 type S3HalowSeam = EmbassyInterfaceSeam<'static, Mtx, NOTIFY_CAP, HALOW_AT_MAX_WIRE_FRAME_LEN>;
+#[cfg(feature = "tcp")]
 type S3TcpSeam = EmbassyInterfaceSeam<'static, Mtx, NOTIFY_CAP, EMBEDDED_MAX_WIRE_FRAME_LEN>;
 #[cfg(feature = "wifi-auto")]
 type S3WifiFleet = Fleet<Mtx, { wifi_auto_contract::HARDWARE_MTU }, NOTIFY_CAP, LIFECYCLE_CAP>;
@@ -298,16 +324,19 @@ macro_rules! mk_static {
     }};
 }
 
+#[cfg(feature = "wifi-auto")]
 mod captive_portal;
 mod configuration;
+#[cfg(feature = "wifi-auto")]
 mod connectivity;
 mod display;
 
 #[cfg(feature = "wifi-auto")]
 use captive_portal::ap_ssid;
 #[cfg(feature = "wifi-auto")]
-use configuration::{hopspot_wifi_config, HopspotWifiConfig};
-use configuration::{HopspotTcpClientConfig, HopspotTcpClientHost};
+use configuration::hopspot_wifi_config;
+use configuration::{HopspotTcpClientConfig, HopspotTcpClientHost, HopspotWifiConfig};
+#[cfg(feature = "tcp")]
 use connectivity::build_tcp;
 #[cfg(feature = "wifi-auto")]
 use connectivity::{build_wifi, espnow_channel_policy, EspNowAdapter, ESPNOW_PHY};
@@ -319,6 +348,7 @@ use display::add_manifold_pressure;
 use display::build_interface_menu_details;
 use display::{build_cards, build_snapshots, button_task};
 
+#[cfg(feature = "wifi-auto")]
 static WIFI_SHARED: AutoWifiShared<MEMBERS> = AutoWifiShared::new(WIFI_SUPERVISOR_ID);
 
 #[cfg(feature = "bluetooth-auto")]
@@ -355,6 +385,7 @@ static HALOW_MANIFOLD_LANE: StaticManifoldLane<Mtx, HALOW_AT_MAX_WIRE_FRAME_LEN,
 static NOTIFY: Channel<Mtx, InterfaceId, NOTIFY_CAP> = Channel::new();
 static COMMANDS: Channel<Mtx, personal_rns::engine::IssuedCommand, COMMANDS_CAP> = Channel::new();
 static LIFECYCLE: Channel<Mtx, InterfaceLifecycle, LIFECYCLE_CAP> = Channel::new();
+#[cfg(feature = "wifi-auto")]
 static OUTBOUND_WAKE: Signal<Mtx, ()> = Signal::new();
 #[cfg(feature = "bluetooth-auto")]
 static BLE_OUTBOUND_WAKE: Signal<Mtx, ()> = Signal::new();
@@ -386,6 +417,8 @@ fn ignore_events(_event: PrnsEvent<'_>, _state: &()) {}
 const BOOT_PHASE_MAGIC: u32 = 0x5052_0000;
 
 #[derive(Clone, Copy)]
+// Boards without the 2.4 GHz radios never reach the Wi-Fi, TCP, or Bluetooth stages.
+#[cfg_attr(not(feature = "wifi-auto"), allow(dead_code))]
 pub(crate) enum BootPhase {
     // Only boards with a panel emit the OLED stages; a headless-only build constructs none of them.
     #[allow(dead_code)]

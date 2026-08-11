@@ -1,64 +1,92 @@
-# B1: halow-only build shape — partial, paused 2026-08-10
+# B1: halow-only build shape — complete, 2026-08-10
 
-Goal (Doc's tasking B1): a t-halow firmware shape with the 2.4 GHz radios compiled out, so a
-HaLow link test cannot be satisfied by ESP-NOW/BLE/WiFi behind its back.
+Goal (Doc's tasking B1): a t-halow firmware shape with the 2.4 GHz radios compiled out, so a HaLow
+link test cannot be satisfied by ESP-NOW/BLE/WiFi behind its back.
 
-## Where it stands
+Branch `feat/halow-only-soak` off `feat/halow-at-poc` (0bb10308).
 
-Branch `feat/halow-only-soak` off `feat/halow-at-poc` (0bb10308). **Not finished.**
+## Gates
 
-- `cargo t-halow` (default, all radios): exit 0, **zero warnings**.
-- `cargo heltec-v4-r8` (shared-tree regression control): exit 0, **zero warnings**.
-- `cargo build -p hopspot-t-halow --no-default-features` (the halow-only shape): **still failing**,
-  11 errors — down from the original hard-error, but the cascade is not closed.
+All on chido (Windows, esp toolchain), from `personal-hopspot/embedded/esp32`:
 
-So the tree is safe to sit on: every shipping board builds exactly as before. Only the new
-not-yet-selected shape is red, and no board package selects it.
+| build | result |
+|---|---|
+| `cargo build -p hopspot-t-halow --no-default-features` (halow-only) | exit 0, **zero warnings** |
+| `cargo t-halow` (default, all radios) | exit 0, **zero warnings** |
+| `cargo heltec-v4-r8` (shared-tree regression control) | exit 0, **zero warnings** |
+| `bash validation/hygiene/fmt-docs.sh` (Git Bash) | three markers, `FMT_DOC_CHECK_GATE_OK` |
 
-## What is done
+The two shipping builds are the control: every file changed here is shared with them, so a green
+halow-only build on its own would prove nothing about regressions.
 
-- `lib.rs`: the S3 hard-error and the `s3` module gate now require only `usb`, the same relaxation
-  PR #96 made for `lora`.
-- `boards/t-halow/Cargo.toml`: radios moved behind a default-on `radios-2g4` feature, so
-  `--no-default-features` is the halow-only shape and the normal build is byte-identical in
-  features.
-- `s3/mod.rs`: gated the `personal_rns::tcp` and `personal_rns::wifi_auto` imports and
-  `WIFI_DRIVER_RESTART_REQUESTED`; un-gated `String`, `AtomicBool`, and the two `WIFI_STATION_*`
-  statics that the card renderer reads unconditionally.
-- `s3/configuration.rs`: the config *types* (`HopspotWifiConfig`, `HopspotTcpClientConfig`,
-  `HopspotTcpClientHost`) are now always compiled — they are pure data the renderer reads — while
-  the flash-reading behavior stays gated. `HopspotWifiConfig` gained `Default`.
-- `s3/firmware.rs`: an empty `HopspotWifiConfig` on the no-wifi path; `station_configured` folded
-  back to one line.
-- `s3/connectivity.rs`: `build_tcp` gated on `tcp`.
+Not run: WSL host tests and clippy (this crate is Xtensa-only and CI never compiles it, so the
+bench build *is* the gate), and hardware boot-verify — see "Still owed" below.
 
-## What is left (the 11 errors)
+## Size delta, default vs halow-only
 
-The remaining cascade is all *wifi types in signatures*, not logic:
+`xtensa-esp32s3-elf-size` on `target/xtensa-esp32s3-none-elf/release/hopspot-t-halow`:
 
-1. `display.rs` `build_snapshots`/`build_cards` take `Option<&AutoWifiStatus<MEMBERS>>`, and
-   `firmware.rs` holds `Option<AutoWifi<'static, MEMBERS>>` and `TcpClient<'static>`. Those types
-   come from the gated `personal_rns::wifi_auto` / `::tcp`, so the signatures do not exist in the
-   halow-only shape. `#[cfg]` on a parameter needs `#[cfg]` on the call site's argument, which Rust
-   does not allow, so this needs either duplicated signatures or an uninhabited stand-in type
-   (`enum WifiCardStatus {}` with `match *self {}` methods) behind the shim.
-2. Module declarations still to gate: `captive_portal` (its `use super::*` goes unused), and check
-   `station_recovery` / `wifi_data_path_recovery` reachability.
-3. `connectivity::build_tcp` import in `mod.rs:311` needs the same `tcp` gate as the definition.
-4. Unused-import warnings to clear once the above lands: `embassy_net::udp::{PacketMetadata,
-   UdpSocket}`, the `embassy_net` config group, `MacAddress`, `Fleet`.
+| shape | text (flash) | data | bss | static RAM (data+bss) |
+|---|---|---|---|---|
+| default (all radios) | 1,606,043 | 28,384 | 649,196 | 677,580 |
+| halow-only | 678,489 | 10,504 | 536,044 | 546,548 |
+| delta | **−927,554 (−57.8%)** | −17,880 | −113,152 | **−131,032 (−19.3%)** |
 
-Estimated: a few more build cycles. The shape of the answer is known; it is mechanical from here.
+This is the evidence that the radios actually left the image rather than merely being unreferenced.
 
-## Why it paused
+## How it was done
 
-Token budget, not a technical blocker. Resume with
-`cargo build --release -p hopspot-t-halow --no-default-features --target xtensa-esp32s3-none-elf
--Zbuild-std=core,alloc` and work the error list top-down.
+The tree already had a settled idiom for an optional radio, and Wi-Fi was the one radio breaking
+it. Every other radio reaches the renderer as feature-independent values — `Option<InterfaceId>`
+and `Option<&'static EmbassyInterfaceStatus>` declared on both `#[cfg]` arms (`firmware.rs`, the
+`halow-at` block is the cleanest template) — which is why `build_snapshots`, `build_cards` and
+`classify_card` carry no `#[cfg]` at all. Wi-Fi alone was passed as `Option<&AutoWifiStatus<MEMBERS>>`
+plus `&HopspotWifiConfig`.
 
-## Interim answer for the soak
+So the change was to make Wi-Fi conform, not to add `#[cfg]` everywhere:
 
-Distance plus a control arm gets honest evidence without this refactor: run the game once with the
-HaLow module held down (2.4-GHz-only control) to show the 2.4 path cannot carry it at the
-hertz/marconi separation, then run it for real, and count `RNS_HALOW_AT rx/tx` lines per frame.
-The arm that FAILS is what makes the passing arm attributable.
+- `s3/display.rs`: `build_snapshots` now takes `Option<&dyn InterfaceStatus>` plus a pre-walked
+  `&[&'static dyn InterfaceStatus]` of fleet members; `build_cards` takes the already-resolved
+  `wifi_kind: screen::CardKind` instead of the config. Both stay `#[cfg]`-free.
+- `s3/firmware.rs`: Wi-Fi/TCP Option shims on both arms; the fleet walk and `wifi_kind` computation
+  moved to the caller, where the feature context lives. Concrete Wi-Fi types now appear only inside
+  gated blocks, matching how the BLE toggle path was already written.
+- `s3/mod.rs`: `LANE_COUNT` follows the feature set (base `1` for USB plus one per selected radio,
+  instead of a literal `3` assuming usb+wifi+tcp — arithmetic is unchanged for every existing
+  board, which is the check that it is right); `MEMBERS` collapses to 0 without `wifi-auto`.
+  `INTERFACE_CAPACITY`'s base was deliberately left alone: over-allocating is harmless, and
+  under-allocating panics at lane claim.
+- Wi-Fi/TCP-only imports, consts, statics, and the `captive_portal`, `connectivity`,
+  `station_recovery`, `wifi_data_path_recovery` modules gated.
+
+## The defect a green build was hiding
+
+The final dispatch in `firmware.rs` is combinatorial on `bluetooth-auto` × `wifi-auto` and had
+three arms: BLE-only, Wi-Fi-only, and both. **There was no arm for neither** — exactly the
+halow-only shape. It compiled clean while spawning nothing: no HaLow task, no render loop. A board
+that boots and does nothing.
+
+Caught only because `halow_seam` and `render` showed up as unused-variable warnings. Added the
+fourth arm. This is the "gate that passes without working" class, and it is the reason the
+hardware boot-verify below is not optional.
+
+Corrections to earlier guesses in this file's previous revision: every module under `s3/` is
+ungated, so `captive_portal` needed a module gate for dead-code reasons only, not to compile; and
+the uninhabited stand-in type turned out to be unnecessary — the repo's own Option-shim idiom
+covers it.
+
+## Still owed
+
+1. **Boot-verify on hardware**: flash the halow-only image and confirm the console shows the HaLow
+   interface up and **no** Wi-Fi/BLE/ESP-NOW interface lines. Until that runs, this is a build
+   result, not a working-firmware result.
+2. Hand the artifact to Doc — boards now live on the Pis (a3f4 on hertz, 5c10 on marconi), so she
+   flashes over SSH. ELF at `target/xtensa-esp32s3-none-elf/release/hopspot-t-halow`, partition
+   table `partitions-hopspot-16mb.csv`.
+
+## The soak still needs a control arm
+
+Independent of this work: run the game once with the HaLow module held down to show 2.4 GHz cannot
+carry it at the hertz/marconi separation, then run it for real, counting `RNS_HALOW_AT rx/tx`.
+The arm that FAILS is what makes the passing arm attributable. The halow-only image makes that
+control much stronger, but it does not replace it.

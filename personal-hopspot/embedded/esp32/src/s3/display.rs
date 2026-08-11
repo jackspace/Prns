@@ -72,15 +72,18 @@ pub(super) async fn button_task(mut button: Input<'static>) -> ! {
     }
 }
 
+/// `wifi` and its fleet arrive as plain `InterfaceStatus` values rather than the `AutoWifiStatus`
+/// itself, so this stays free of `#[cfg]` the way the LoRa, ESP-NOW, and HaLow paths already are.
+/// The caller walks the fleet, because only it knows whether Wi-Fi was compiled in.
 pub(super) fn build_snapshots(
     usb: &EmbassyInterfaceStatus,
-    wifi: Option<&AutoWifiStatus<MEMBERS>>,
+    wifi: Option<&dyn InterfaceStatus>,
+    wifi_members: &[&'static dyn InterfaceStatus],
     tcp: Option<&EmbassyInterfaceStatus>,
     lora: Option<&EmbassyInterfaceStatus>,
     espnow: Option<&EmbassyInterfaceStatus>,
     halow: Option<&EmbassyInterfaceStatus>,
 ) -> HVec<InterfaceSnapshot, 8> {
-    use personal_rns::interfaces::InterfaceStatus;
     #[cfg(feature = "bluetooth-auto")]
     let ble = BluetoothAutoStatus::new(&BLE_SHARED);
     let mut entries: HVec<(&dyn InterfaceStatus, Membership), 8> = HVec::new();
@@ -107,8 +110,8 @@ pub(super) fn build_snapshots(
 
     if let Some(wifi) = wifi {
         let supervisor_id = wifi.id();
-        for member in wifi.members() {
-            let _ = entries.push((member, Membership::FleetMember { supervisor_id }));
+        for member in wifi_members {
+            let _ = entries.push((*member, Membership::FleetMember { supervisor_id }));
         }
     }
     #[cfg(feature = "bluetooth-auto")]
@@ -119,7 +122,7 @@ pub(super) fn build_snapshots(
         }
     }
     let mut snapshots: HVec<InterfaceSnapshot, 8> = HVec::new();
-    let wifi_id = wifi.map(InterfaceStatus::id);
+    let wifi_id = wifi.map(|status| status.id());
     for (status, membership) in &entries {
         let id = status.id();
         let counts = INTERFACE_STORE.counts(id);
@@ -151,25 +154,20 @@ pub(super) fn build_snapshots(
     snapshots
 }
 
+/// Takes the already-resolved `wifi_kind` rather than the Wi-Fi config and status, matching what
+/// `classify_card` below has always taken, and keeping `AutoWifiStatus` out of a shared signature.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_cards(
     snapshots: &[InterfaceSnapshot],
     usb_id: InterfaceId,
     wifi_id: Option<InterfaceId>,
     tcp_id: Option<InterfaceId>,
     tcp_client: Option<&HopspotTcpClientConfig>,
-    wifi: Option<&AutoWifiStatus<MEMBERS>>,
-    wifi_config: &HopspotWifiConfig,
+    wifi_kind: screen::CardKind,
     lora_id: Option<InterfaceId>,
     espnow_id: Option<InterfaceId>,
     halow_id: Option<InterfaceId>,
 ) -> HVec<screen::Card, 8> {
-    let wifi_kind = if !wifi_config.has_station() {
-        screen::CardKind::Wifi
-    } else if wifi.is_some_and(|status| status.is_station_uplink_enabled()) {
-        screen::CardKind::WifiStation
-    } else {
-        screen::CardKind::WifiStationDisabled
-    };
     screen::snapshots_to_cards(snapshots, |id| {
         classify_card(
             id, usb_id, wifi_id, tcp_id, tcp_client, wifi_kind, lora_id, espnow_id, halow_id,
