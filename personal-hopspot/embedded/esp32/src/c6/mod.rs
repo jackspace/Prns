@@ -192,6 +192,7 @@ async fn usb_device_task(
         tx,
         status: &USB_STATUS,
         host_present,
+        vitals_sources: &[],
     });
     device.run(seam).await
 }

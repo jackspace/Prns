@@ -300,7 +300,9 @@ fn vet_handshake(body: &[u8], expected_len: usize) -> Result<(), MalformedMessag
 
 #[cfg(any(test, feature = "embassy-host"))]
 pub enum InboundReaction<'a> {
-    AnswerHandshake,
+    /// Answer the probe, and remember what the prober advertised: the peer's capability bits
+    /// decide what the device may volunteer later (vitals reports, for one).
+    AnswerHandshake(Capabilities),
     Deliver(&'a [u8]),
     Ignore,
 }
@@ -308,7 +310,7 @@ pub enum InboundReaction<'a> {
 #[cfg(any(test, feature = "embassy-host"))]
 pub fn react_to(message: Result<Message<'_>, MalformedMessage>) -> InboundReaction<'_> {
     match message {
-        Ok(Message::Hello(_)) => InboundReaction::AnswerHandshake,
+        Ok(Message::Hello(capabilities)) => InboundReaction::AnswerHandshake(capabilities),
         Ok(Message::Data(packet)) => InboundReaction::Deliver(packet),
         Ok(Message::HelloAck { .. } | Message::Vitals(_)) | Err(_) => InboundReaction::Ignore,
     }
@@ -673,11 +675,12 @@ mod tests {
     }
 
     #[test]
-    fn the_device_answers_a_host_probe() {
-        assert!(matches!(
-            react_to(Ok(Message::Hello(Capabilities::host()))),
-            InboundReaction::AnswerHandshake
-        ));
+    fn the_device_answers_a_host_probe_and_keeps_what_it_advertised() {
+        let probe = Capabilities::host().with_vitals();
+        match react_to(Ok(Message::Hello(probe))) {
+            InboundReaction::AnswerHandshake(kept) => assert_eq!(kept, probe),
+            _ => panic!("expected the device to answer the probe"),
+        }
     }
 
     #[test]

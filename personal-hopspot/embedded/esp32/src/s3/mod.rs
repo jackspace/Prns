@@ -528,6 +528,7 @@ async fn usb_device_task(
     tx: UsbSerialJtagTx<'static, Async>,
     seam: UsbSeam,
     status: &'static EmbassyInterfaceStatus,
+    vitals_sources: &'static [&'static EmbassyInterfaceStatus],
 ) {
     let mut last_sof = 0u16;
     let host_present = move || {
@@ -545,6 +546,7 @@ async fn usb_device_task(
         tx,
         status,
         host_present,
+        vitals_sources,
     });
     device.run(seam).await
 }

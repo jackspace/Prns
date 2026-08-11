@@ -369,7 +369,18 @@ pub(super) async fn run_core<B: Esp32S3Board>(
 
     let (usb_rx, usb_tx) = UsbSerialJtag::new(usb_device).into_async().split();
     let usb_seam = usb_lane.into_seam(NOTIFY.sender(), hardware_entropy);
-    spawner.spawn(usb_device_task(usb_rx, usb_tx, usb_seam, usb_status).expect("usb task fits"));
+    // The radios the USB peer has no console to: their vitals cross the link when the peer
+    // advertises the capability. HaLow first because its bench runs are exactly the case where
+    // the daemon owns the only console.
+    #[cfg(feature = "halow-at")]
+    let vitals_sources: &'static [&'static EmbassyInterfaceStatus] =
+        mk_static!([&'static EmbassyInterfaceStatus; 1], [halow_status]);
+    #[cfg(not(feature = "halow-at"))]
+    let vitals_sources: &'static [&'static EmbassyInterfaceStatus] = &[];
+    spawner.spawn(
+        usb_device_task(usb_rx, usb_tx, usb_seam, usb_status, vitals_sources)
+            .expect("usb task fits"),
+    );
 
     #[cfg(feature = "lora")]
     let lora_seam = lora_lane.into_seam(NOTIFY.sender(), hardware_entropy);

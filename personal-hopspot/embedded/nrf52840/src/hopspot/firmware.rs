@@ -224,6 +224,7 @@ pub(crate) async fn run(spawner: Spawner) -> ! {
         tx: usb_tx,
         status: usb_status,
         host_present: || true,
+        vitals_sources: &[],
     });
 
     let lora_lane = manifold_lanes

@@ -5,12 +5,12 @@ pub use device::{
     WEBUSB_AUTO_PACKET_SIZE,
 };
 
-use embassy_futures::select::{select, select3, Either, Either3};
+use embassy_futures::select::{select, select4, Either, Either4};
 use embassy_time::{with_timeout, Duration, Instant, Timer};
 use embedded_io_async::{Error, ErrorKind, Read, Write};
 
 use prns_core::interfaces::usb_auto::{
-    self as contract, Capabilities, InboundReaction, Message, NodeTag,
+    self as contract, Capabilities, InboundReaction, Message, NodeTag, VitalsReport,
 };
 use prns_core::interfaces::{
     ConnectionState, InterfaceDescriptor, InterfaceId, InterfaceKind, InterfaceStatus,
@@ -24,6 +24,10 @@ const WRITE_TIMEOUT: Duration = Duration::from_millis(200);
 const IO_RETRY_DELAY: Duration = Duration::from_millis(100);
 const PRESENCE_PROBE_INTERVAL: Duration = Duration::from_secs(2);
 const PRESENCE_STRIKES_TO_DORMANT: u8 = 2;
+/// Cadence for volunteered vitals once the peer has advertised the bit. The first report goes
+/// out right after the handshake so the host has a baseline the moment the link is up; a full
+/// round is a few frames of ~60 bytes, noise even at the slowest serial rates.
+const VITALS_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug, PartialEq, Eq)]
 enum UsbLifecycle {
@@ -144,6 +148,10 @@ pub struct UsbAutoDeviceInput<'a, R, W, P> {
     pub tx: W,
     pub status: &'a EmbassyInterfaceStatus,
     pub host_present: P,
+    /// Interfaces whose vitals this node volunteers across the link once the peer advertises
+    /// the capability — typically the radios the peer has no console to. Empty means the node
+    /// reports nothing, whatever the peer asks for.
+    pub vitals_sources: &'a [&'a EmbassyInterfaceStatus],
 }
 
 pub struct UsbAutoDevice<'a, R, W, P> {
@@ -153,6 +161,7 @@ pub struct UsbAutoDevice<'a, R, W, P> {
     node_tag: NodeTag,
     status: &'a EmbassyInterfaceStatus,
     host_present: P,
+    vitals_sources: &'a [&'a EmbassyInterfaceStatus],
 }
 
 impl<'a, R, W, P> UsbAutoDevice<'a, R, W, P> {
@@ -163,6 +172,7 @@ impl<'a, R, W, P> UsbAutoDevice<'a, R, W, P> {
             tx,
             status,
             host_present,
+            vitals_sources,
         } = input;
         let id = status.id();
         Self {
@@ -172,6 +182,7 @@ impl<'a, R, W, P> UsbAutoDevice<'a, R, W, P> {
             node_tag: contract::node_tag_for(id),
             status,
             host_present,
+            vitals_sources,
         }
     }
 }
@@ -201,6 +212,7 @@ where
             node_tag,
             status,
             mut host_present,
+            vitals_sources,
         } = self;
         let mut decoder = contract::Decoder::new();
         let mut read_buf = [0u8; contract::READ_CHUNK_BYTES];
@@ -210,6 +222,10 @@ where
         let mut read_retry_at = None;
         let mut presence_probe_at = Instant::now() + PRESENCE_PROBE_INTERVAL;
         let mut io_priority = IoPriority::Read;
+        // Armed by a Hello that advertises the vitals bit; the first report goes out
+        // immediately, then every VITALS_INTERVAL. A link drop leaves the deadline in place but
+        // the fire-time guard requires a linked lifecycle, and the host's re-Hello re-arms.
+        let mut vitals_at: Option<Instant> = None;
 
         lifecycle.publish(status);
 
@@ -219,13 +235,15 @@ where
                 decoder = contract::Decoder::new();
                 read_retry_at = None;
                 absent_probes = 0;
+                vitals_at = None;
                 status.wait_until_enabled().await;
                 lifecycle.publish(status);
                 presence_probe_at = Instant::now() + PRESENCE_PROBE_INTERVAL;
             }
-            match select3(
+            match select4(
                 status.wait_until_disabled(),
                 Timer::at(presence_probe_at),
+                at_or_never(vitals_at),
                 next_io(
                     &mut rx,
                     &mut read_buf,
@@ -236,8 +254,8 @@ where
             )
             .await
             {
-                Either3::First(()) => {}
-                Either3::Second(()) => {
+                Either4::First(()) => {}
+                Either4::Second(()) => {
                     presence_probe_at = Instant::now() + PRESENCE_PROBE_INTERVAL;
                     match presence_verdict(host_present(), &mut absent_probes) {
                         PresenceVerdict::Present | PresenceVerdict::SuspectedAbsent => {}
@@ -247,7 +265,47 @@ where
                         }
                     }
                 }
-                Either3::Third(event) => {
+                Either4::Third(()) => {
+                    if lifecycle.is_linked() {
+                        for source in vitals_sources {
+                            let report = Message::Vitals(VitalsReport {
+                                interface_id: source.id(),
+                                connection: source.connection(),
+                                rx_bytes: source.rx_bytes(),
+                                tx_bytes: source.tx_bytes(),
+                                frames: source.frame_accounting(),
+                            });
+                            match write_message(&mut tx, &report, &mut frame_buf, status).await {
+                                WriteOutcome::Sent(n) => {
+                                    status.add_tx(n as u64);
+                                    lifecycle.recover(status);
+                                }
+                                // A round is best-effort: vitals must never fight real traffic
+                                // for a struggling wire, so any refusal ends the round and the
+                                // next deadline tries again from the top.
+                                WriteOutcome::TimedOut | WriteOutcome::TransientFailure => {
+                                    lifecycle.degrade(status);
+                                    break;
+                                }
+                                WriteOutcome::Disconnected => {
+                                    decoder = contract::Decoder::new();
+                                    lifecycle.disconnect(status);
+                                    break;
+                                }
+                                WriteOutcome::Failed | WriteOutcome::Rejected => {
+                                    decoder = contract::Decoder::new();
+                                    lifecycle.fail(status);
+                                    break;
+                                }
+                                WriteOutcome::Disabled => break,
+                            }
+                        }
+                        vitals_at = Some(Instant::now() + VITALS_INTERVAL);
+                    } else {
+                        vitals_at = None;
+                    }
+                }
+                Either4::Fourth(event) => {
                     io_priority.alternate();
                     match event {
                         IoEvent::Read(ReadOutcome::Bytes(n)) => {
@@ -263,10 +321,18 @@ where
                                     continue;
                                 }
                                 match contract::react_to(contract::decode_message(frame)) {
-                                    InboundReaction::AnswerHandshake => {
+                                    InboundReaction::AnswerHandshake(peer) => {
+                                        vitals_at = (peer.supports_vitals()
+                                            && !vitals_sources.is_empty())
+                                        .then(Instant::now);
+                                        let capabilities = if vitals_sources.is_empty() {
+                                            Capabilities::none()
+                                        } else {
+                                            Capabilities::none().with_vitals()
+                                        };
                                         let ack = Message::HelloAck {
                                             tag: node_tag,
-                                            capabilities: Capabilities::none(),
+                                            capabilities,
                                         };
                                         match write_message(&mut tx, &ack, &mut frame_buf, status)
                                             .await
@@ -365,6 +431,14 @@ where
                 }
             }
         }
+    }
+}
+
+/// A deadline that never fires while unarmed, so an optional timer can hold a select arm.
+async fn at_or_never(at: Option<Instant>) {
+    match at {
+        Some(at) => Timer::at(at).await,
+        None => core::future::pending().await,
     }
 }
 
@@ -705,6 +779,7 @@ mod tests {
                 },
                 status: &status,
                 host_present: || true,
+                vitals_sources: &[],
             });
             let inner =
                 EmbassyInterfaceSeam::new(device_id(), in_tx, notify.sender(), out_rx, |bytes| {
@@ -774,6 +849,153 @@ mod tests {
     }
 
     #[test]
+    fn a_vitals_capable_host_gets_a_baseline_report_right_after_the_handshake() {
+        let host_to_device = RefCell::new(VecDeque::new());
+        let device_to_host = RefCell::new(VecDeque::new());
+        let status = EmbassyInterfaceStatus::new(device_id(), ConnectionState::Initializing);
+        let radio_id = InterfaceId::new([0xA1; 8]);
+        let radio = EmbassyInterfaceStatus::new(radio_id, ConnectionState::Connected);
+        radio.account_frames();
+        radio.count_frame_in();
+        radio.count_frame_undecodable();
+        radio.add_rx(202);
+
+        let notify: Channel<CriticalSectionRawMutex, InterfaceId, 1> = Channel::new();
+        let (in_tx, _in_rx) = leaked_grant_lane::<DEVICE_SLOT>(1);
+        let (_out_tx, out_rx) = leaked_grant_lane::<DEVICE_SLOT>(1);
+
+        let vitals_sources = [&radio];
+        block_on(async {
+            let device = UsbAutoDevice::new(UsbAutoDeviceInput {
+                rx: MockStream {
+                    buf: &host_to_device,
+                },
+                tx: MockStream {
+                    buf: &device_to_host,
+                },
+                status: &status,
+                host_present: || true,
+                vitals_sources: &vitals_sources,
+            });
+            let seam =
+                EmbassyInterfaceSeam::new(device_id(), in_tx, notify.sender(), out_rx, |bytes| {
+                    bytes.fill(0)
+                });
+            let device_run = device.run(seam);
+
+            let driver = async {
+                let mut frame = [0u8; contract::MAX_FRAMED_BYTES];
+                let mut decoder = contract::Decoder::new();
+
+                let hello = Message::Hello(Capabilities::host().with_vitals());
+                let n = hello.write_framed(&mut frame).expect("frames the hello");
+                host_to_device
+                    .borrow_mut()
+                    .extend(frame[..n].iter().copied());
+
+                let advertised =
+                    read_until(&device_to_host, &mut decoder, |message| match message {
+                        Message::HelloAck { capabilities, .. } => Some(capabilities),
+                        _ => None,
+                    })
+                    .await;
+                assert!(advertised.supports_vitals());
+
+                let report = read_until(&device_to_host, &mut decoder, |message| match message {
+                    Message::Vitals(report) => Some(report),
+                    _ => None,
+                })
+                .await;
+                assert_eq!(report.interface_id, radio_id);
+                assert_eq!(report.connection, ConnectionState::Connected);
+                assert_eq!(report.rx_bytes, 202);
+                let frames = report.frames.expect("the radio accounts for frames");
+                assert_eq!(
+                    (
+                        frames.frames_in,
+                        frames.malformed,
+                        frames.undecodable,
+                        frames.delivered
+                    ),
+                    (1, 0, 1, 0)
+                );
+            };
+
+            match select(device_run, with_timeout(WATCHDOG, driver)).await {
+                Either::Second(result) => result.expect("the report arrives before the watchdog"),
+                Either::First(()) => unreachable!("the device loop never returns"),
+            }
+        });
+    }
+
+    #[test]
+    fn a_host_that_did_not_ask_gets_no_vitals() {
+        let host_to_device = RefCell::new(VecDeque::new());
+        let device_to_host = RefCell::new(VecDeque::new());
+        let status = EmbassyInterfaceStatus::new(device_id(), ConnectionState::Initializing);
+        let radio =
+            EmbassyInterfaceStatus::new(InterfaceId::new([0xA1; 8]), ConnectionState::Connected);
+        radio.account_frames();
+
+        let notify: Channel<CriticalSectionRawMutex, InterfaceId, 1> = Channel::new();
+        let (in_tx, _in_rx) = leaked_grant_lane::<DEVICE_SLOT>(1);
+        let (_out_tx, out_rx) = leaked_grant_lane::<DEVICE_SLOT>(1);
+
+        let vitals_sources = [&radio];
+        block_on(async {
+            let device = UsbAutoDevice::new(UsbAutoDeviceInput {
+                rx: MockStream {
+                    buf: &host_to_device,
+                },
+                tx: MockStream {
+                    buf: &device_to_host,
+                },
+                status: &status,
+                host_present: || true,
+                vitals_sources: &vitals_sources,
+            });
+            let seam =
+                EmbassyInterfaceSeam::new(device_id(), in_tx, notify.sender(), out_rx, |bytes| {
+                    bytes.fill(0)
+                });
+            let device_run = device.run(seam);
+
+            let driver = async {
+                let mut frame = [0u8; contract::MAX_FRAMED_BYTES];
+                let mut decoder = contract::Decoder::new();
+
+                // A plain host probe, no vitals bit.
+                let hello = Message::Hello(Capabilities::host());
+                let n = hello.write_framed(&mut frame).expect("frames the hello");
+                host_to_device
+                    .borrow_mut()
+                    .extend(frame[..n].iter().copied());
+
+                read_until(&device_to_host, &mut decoder, |message| {
+                    matches!(message, Message::HelloAck { .. }).then_some(())
+                })
+                .await;
+
+                // The device volunteers its first report immediately after the handshake when
+                // asked, so a quiet wire past that window means it correctly stayed silent.
+                let unasked_report = with_timeout(
+                    Duration::from_millis(250),
+                    read_until(&device_to_host, &mut decoder, |message| {
+                        matches!(message, Message::Vitals(_)).then_some(())
+                    }),
+                )
+                .await;
+                assert!(unasked_report.is_err(), "vitals were volunteered unasked");
+            };
+
+            match select(device_run, with_timeout(WATCHDOG, driver)).await {
+                Either::Second(result) => result.expect("the check completes before the watchdog"),
+                Either::First(()) => unreachable!("the device loop never returns"),
+            }
+        });
+    }
+
+    #[test]
     fn outbound_while_unlinked_is_typed_and_releases_its_lane_slot() {
         let host_to_device = RefCell::new(VecDeque::new());
         let device_to_host = RefCell::new(VecDeque::new());
@@ -793,6 +1015,7 @@ mod tests {
                 },
                 status: &status,
                 host_present: || true,
+                vitals_sources: &[],
             });
             let inner =
                 EmbassyInterfaceSeam::new(device_id(), in_tx, notify.sender(), out_rx, |bytes| {
@@ -1058,6 +1281,7 @@ mod tests {
                 },
                 status: &status,
                 host_present: || true,
+                vitals_sources: &[],
             });
             let seam =
                 EmbassyInterfaceSeam::new(device_id(), in_tx, notify.sender(), out_rx, |bytes| {
@@ -1112,6 +1336,7 @@ mod tests {
                 },
                 status: &status,
                 host_present: || true,
+                vitals_sources: &[],
             });
             let seam =
                 EmbassyInterfaceSeam::new(device_id(), in_tx, notify.sender(), out_rx, |bytes| {
