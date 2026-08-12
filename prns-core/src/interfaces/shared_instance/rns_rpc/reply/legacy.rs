@@ -32,9 +32,12 @@ impl LegacyRpcReplyPlan {
                 None => Self::Immediate(RnsRpcReply::next_hop_interface_name(None)),
             },
             RpcVerb::GetFirstHopTimeout => Self::Immediate(RnsRpcReply::first_hop_timeout()),
+            // `GetInterfaceVitals` is Prns-native and has no pickle spelling, so the legacy
+            // classifier never produces it; it is listed here only to keep the match total.
             RpcVerb::GetPacketRssi
             | RpcVerb::GetPacketSnr
             | RpcVerb::GetPacketQuality
+            | RpcVerb::GetInterfaceVitals
             | RpcVerb::Unknown => Self::Immediate(RnsRpcReply::none()),
             RpcVerb::GetBlackholedIdentities => {
                 Self::Immediate(RnsRpcReply::empty_blackhole_table())

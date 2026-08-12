@@ -39,6 +39,9 @@ fn dialect_of(request: &[u8]) -> RpcDialect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RpcVerb {
     GetInterfaceStats,
+    /// Prns-native. `classify_pickle_rpc_verb` never yields it, because the legacy dialect
+    /// predates the verb and no pickle client can ask for it.
+    GetInterfaceVitals,
     GetPathTable,
     GetRateTable,
     GetLinkCount,
@@ -64,6 +67,7 @@ impl RpcVerb {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::GetInterfaceStats => verb::GET_INTERFACE_STATS,
+            Self::GetInterfaceVitals => verb::GET_INTERFACE_VITALS,
             Self::GetPathTable => verb::GET_PATH_TABLE,
             Self::GetRateTable => verb::GET_RATE_TABLE,
             Self::GetLinkCount => verb::GET_LINK_COUNT,
@@ -91,6 +95,7 @@ impl RnsRpcRequest {
     pub const fn verb(&self) -> RpcVerb {
         match self {
             Self::InterfaceStats => RpcVerb::GetInterfaceStats,
+            Self::InterfaceVitals => RpcVerb::GetInterfaceVitals,
             Self::PathTable { .. } => RpcVerb::GetPathTable,
             Self::RateTable => RpcVerb::GetRateTable,
             Self::LinkCount => RpcVerb::GetLinkCount,
@@ -237,6 +242,7 @@ mod tests {
         assert_eq!(RpcDialect::Msgpack.as_str(), "msgpack");
         let cases = [
             (RpcVerb::GetInterfaceStats, "interface_stats"),
+            (RpcVerb::GetInterfaceVitals, "interface_vitals"),
             (RpcVerb::GetPathTable, "path_table"),
             (RpcVerb::GetRateTable, "rate_table"),
             (RpcVerb::GetLinkCount, "link_count"),

@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::engine::RouteSnapshot;
 use crate::interfaces::rns_management::{
     interface_name, next_hop_bytes, MessagePackEncoder, RnsAnnounceRateTable, RnsBlackholeTable,
-    RnsInterfaceStats, RnsManagementEncodeError, RnsPathTable,
+    RnsInterfaceStats, RnsInterfaceVitalsReport, RnsManagementEncodeError, RnsPathTable,
 };
 use crate::routing::BlackholedIdentity;
 
@@ -58,6 +58,7 @@ enum RnsRpcReplyKind {
     PathTable(RnsPathTable),
     AnnounceRateTable(RnsAnnounceRateTable),
     InterfaceStats(RnsInterfaceStats),
+    InterfaceVitals(RnsInterfaceVitalsReport),
     BlackholeTable(RnsBlackholeTable),
 }
 
@@ -103,6 +104,10 @@ impl RnsRpcReply {
         Self(RnsRpcReplyKind::InterfaceStats(stats))
     }
 
+    pub fn interface_vitals(report: RnsInterfaceVitalsReport) -> Self {
+        Self(RnsRpcReplyKind::InterfaceVitals(report))
+    }
+
     fn blackhole_table<Reason: AsRef<str>>(
         entries: impl IntoIterator<Item = BlackholedIdentity<Reason>>,
     ) -> Self {
@@ -135,6 +140,7 @@ impl RnsRpcReply {
             RnsRpcReplyKind::PathTable(table) => table.encode_into(&mut encoder)?,
             RnsRpcReplyKind::AnnounceRateTable(table) => table.encode_into(&mut encoder)?,
             RnsRpcReplyKind::InterfaceStats(stats) => stats.encode_into(&mut encoder)?,
+            RnsRpcReplyKind::InterfaceVitals(report) => report.encode_into(&mut encoder)?,
             RnsRpcReplyKind::BlackholeTable(table) => table.encode_into(&mut encoder)?,
         }
         Ok(encoder.finish())

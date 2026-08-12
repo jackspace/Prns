@@ -122,6 +122,13 @@ async fn run_command(command: cli::Command) -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        cli::Command::Vitals(args) => match utilities::vitals::run(args).await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("prnsd vitals: {error}");
+                ExitCode::FAILURE
+            }
+        },
         cli::Command::Path(args) => match utilities::rnpath::run(args).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {

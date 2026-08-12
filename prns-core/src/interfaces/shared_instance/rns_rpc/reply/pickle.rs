@@ -28,6 +28,10 @@ pub(super) fn encode(reply: &RnsRpcReplyKind) -> Vec<u8> {
             EMPTY_LIST.to_vec()
         }
         RnsRpcReplyKind::InterfaceStats(_) => EMPTY_INTERFACE_STATS.to_vec(),
+        // Unreachable in practice: a pickle client cannot name this verb, so the dispatcher
+        // never builds a vitals reply for the legacy dialect. Answering nil is what a stock
+        // daemon returns for an operation it does not implement.
+        RnsRpcReplyKind::InterfaceVitals(_) => NONE.to_vec(),
         RnsRpcReplyKind::BlackholeTable(_) => EMPTY_MAP.to_vec(),
     }
 }

@@ -6,8 +6,8 @@ use std::vec::Vec;
 use prns_core::identity::IdentityHash;
 use prns_core::interfaces::rns_management::{
     RnsAnnounceRateTable, RnsAnnounceRateTableDecodeError, RnsBlackholeDecodeError,
-    RnsBlackholeTable, RnsInterfaceStatsDecodeError, RnsInterfaceStatsReport, RnsPathTable,
-    RnsPathTableDecodeError,
+    RnsBlackholeTable, RnsInterfaceStatsDecodeError, RnsInterfaceStatsReport,
+    RnsInterfaceVitalsDecodeError, RnsInterfaceVitalsReport, RnsPathTable, RnsPathTableDecodeError,
 };
 use prns_core::interfaces::shared_instance::rns_rpc::{
     PacketHashArgument, RnsInteger, RnsNumber, RnsRpcRequest, RnsRpcScalarReply,
@@ -100,6 +100,7 @@ pub enum SharedInstanceRpcClientError {
     RequestEncode,
     LegacyReplyDecode,
     InterfaceStatsReply(RnsInterfaceStatsDecodeError),
+    InterfaceVitalsReply(RnsInterfaceVitalsDecodeError),
     LinkCountReply(RnsRpcScalarReplyDecodeError),
     InvalidLinkCount(RnsRpcScalarReply),
     PathTableReply(RnsPathTableDecodeError),
@@ -141,6 +142,9 @@ impl fmt::Display for SharedInstanceRpcClientError {
             }
             Self::InterfaceStatsReply(error) => {
                 write!(formatter, "invalid rnstatus reply: {error}")
+            }
+            Self::InterfaceVitalsReply(error) => {
+                write!(formatter, "invalid interface-vitals reply: {error}")
             }
             Self::LinkCountReply(error) => write!(formatter, "invalid link-count reply: {error}"),
             Self::InvalidLinkCount(reply) => {
@@ -218,6 +222,17 @@ impl SharedInstanceRpcClient {
         let reply = self.exchange(RnsRpcRequest::InterfaceStats).await?;
         RnsInterfaceStatsReport::decode_message_pack(&reply)
             .map_err(SharedInstanceRpcClientError::InterfaceStatsReply)
+    }
+
+    /// Every interface's full vitals, including the frame split that `interface_stats`
+    /// has nowhere to put. Prns-native: a stock RNS daemon answers this verb with an
+    /// unknown-operation error rather than a report.
+    pub async fn interface_vitals(
+        &self,
+    ) -> Result<RnsInterfaceVitalsReport, SharedInstanceRpcClientError> {
+        let reply = self.exchange(RnsRpcRequest::InterfaceVitals).await?;
+        RnsInterfaceVitalsReport::decode_message_pack(&reply)
+            .map_err(SharedInstanceRpcClientError::InterfaceVitalsReply)
     }
 
     pub async fn link_count(&self) -> Result<u64, SharedInstanceRpcClientError> {

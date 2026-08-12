@@ -8,7 +8,8 @@ use prns_core::identity::{
 };
 use prns_core::interfaces::shared_instance::rns_rpc::RpcRequest;
 use prns_core::interfaces::{
-    ConnectionState, InterfaceId, PacketPhyStats, RssiDbm, SignalQualityTenthsPercent, SnrQuarterDb,
+    ConnectionState, InterfaceId, InterfaceVitals, PacketPhyStats, RssiDbm,
+    SignalQualityTenthsPercent, SnrQuarterDb,
 };
 use prns_core::routing::dedup::{PacketHash, PACKET_HASH_LEN};
 use prns_core::routing::NextHop;
@@ -31,6 +32,7 @@ mod management;
 mod queries;
 mod routes;
 mod support;
+mod vitals;
 
 use support::*;
 

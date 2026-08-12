@@ -11,7 +11,7 @@ use prns_core::interfaces::shared_instance::rns_rpc::{
     RpcChallengeNonce, RpcDigest, RpcRequest, RpcVerb, AUTHENTICATION_FRAME_MAX_LENGTH,
     LEGACY_MD5_MESSAGE_LENGTH, RPC_FRAME_MAX_LENGTH,
 };
-use prns_core::interfaces::PacketPhyStats;
+use prns_core::interfaces::{InterfaceVitals, PacketPhyStats};
 use prns_core::routing::dedup::PacketHash;
 use prns_core::routing::{
     BlackholeIdentityOutcome, BlackholedIdentity, UnblackholeIdentityOutcome,

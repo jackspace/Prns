@@ -11,6 +11,7 @@ use crate::utilities::rnpath::RnpathArgs;
 use crate::utilities::rnprobe::RnprobeArgs;
 use crate::utilities::rnstatus::RnstatusArgs;
 use crate::utilities::rnx::RnxArgs;
+use crate::utilities::vitals::VitalsArgs;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
 pub enum LogFormat {
@@ -223,6 +224,8 @@ pub enum Command {
     NnPages(NnPagesArgs),
     #[command(about = "Show Reticulum interface and transport status")]
     Status(RnstatusArgs),
+    #[command(about = "Dump full per-interface counters as one JSON object")]
+    Vitals(VitalsArgs),
     #[command(about = "Inspect and manage Reticulum paths")]
     Path(RnpathArgs),
     #[command(about = "Probe a Reticulum destination")]
@@ -258,6 +261,7 @@ pub fn parse_from(args: impl IntoIterator<Item = OsString>) -> Result<Command, c
                     | "interfaces"
                     | "nnpages"
                     | "status"
+                    | "vitals"
                     | "path"
                     | "probe"
                     | "id"
@@ -657,6 +661,24 @@ mod tests {
             panic!("status must remain a direct utility command");
         };
         assert!(args.version);
+    }
+
+    /// An unrecognised first argument is rewritten to `start`, so a subcommand missing from
+    /// that list does not fail loudly — it silently launches the daemon instead.
+    #[test]
+    fn vitals_is_a_subcommand_rather_than_a_daemon_launch() {
+        let Command::Vitals(args) = parse(&["prnsd", "vitals"]) else {
+            panic!("bare `vitals` must not fall through to `start`");
+        };
+        assert!(!args.json);
+        assert_eq!(args.timeout, 5);
+
+        let Command::Vitals(args) = parse(&["prnsd", "vitals", "--json", "--config", "/node"])
+        else {
+            panic!("vitals must remain a direct utility command");
+        };
+        assert!(args.json);
+        assert_eq!(args.config.as_deref(), Some(std::path::Path::new("/node")));
     }
 
     #[test]

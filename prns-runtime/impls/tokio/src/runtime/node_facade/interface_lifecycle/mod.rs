@@ -12,8 +12,8 @@ use tokio::sync::oneshot;
 use crate::engine::Departure;
 use crate::interfaces::IfacContext;
 use crate::interfaces::{
-    ConnectionView, InterfaceId, InterfaceKind, InterfaceOriginKind, InterfaceSnapshot, Membership,
-    ReportsStatus, StatusView,
+    ConnectionView, InterfaceId, InterfaceKind, InterfaceOriginKind, InterfaceSnapshot,
+    InterfaceVitals, Membership, ReportsStatus, StatusView,
 };
 use crate::manifold::driver::{
     tokio_grant_lane, AddInterfaceCommand, HostCommand, TokioInterfaceSeam,
@@ -176,6 +176,27 @@ impl PrnsNodeHandle {
             }),
         );
         attached
+    }
+
+    /// The same registered interfaces as `interface_inventory`, but reported as the
+    /// interfaces themselves see them. `interface_inventory` folds each `InterfaceVitals`
+    /// into an `InterfaceSnapshot`, which has no place to put `frames` or `uptime_ms`, so
+    /// anything that needs the frame split or a relayed sample's own timestamp has to read
+    /// them here instead. Keep the two together: adding a field to one and not the other is
+    /// how the drop went unnoticed the first time.
+    #[must_use]
+    pub fn interface_vitals_inventory(&self) -> std::vec::Vec<(Option<String>, InterfaceVitals)> {
+        let Ok(map) = self.interfaces.lock() else {
+            return std::vec::Vec::new();
+        };
+        map.values()
+            .flat_map(|registered| {
+                let name = registered.name.clone();
+                (registered.view)()
+                    .into_iter()
+                    .map(move |vitals| (name.clone(), vitals))
+            })
+            .collect()
     }
 
     #[must_use]
