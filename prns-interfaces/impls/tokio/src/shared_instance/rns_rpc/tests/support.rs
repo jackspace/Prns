@@ -105,6 +105,29 @@ impl NodeIntrospection for StubQuery {
         self.interfaces.clone()
     }
 
+    /// Derived from the snapshots this stub holds, so it reports no frame accounting. The
+    /// verb's own coverage lives in `prns-runtime-core`, where a stub carries real vitals.
+    fn interface_vitals_inventory(&self) -> Vec<(Option<String>, InterfaceVitals)> {
+        self.interfaces
+            .iter()
+            .map(|entry| {
+                (
+                    entry.name.clone(),
+                    InterfaceVitals {
+                        id: entry.snapshot.id,
+                        connection: entry.snapshot.connection,
+                        failure_reason: entry.snapshot.failure_reason,
+                        rx_bytes: entry.snapshot.rx_bytes,
+                        tx_bytes: entry.snapshot.tx_bytes,
+                        transfer_rates: entry.snapshot.transfer_rates,
+                        frames: None,
+                        uptime_ms: None,
+                    },
+                )
+            })
+            .collect()
+    }
+
     async fn link_count(&self) -> u32 {
         self.links
     }

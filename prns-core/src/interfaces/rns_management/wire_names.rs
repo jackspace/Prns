@@ -19,6 +19,16 @@ pub mod rate {
     pub const TIMESTAMPS: &str = "timestamps";
 }
 
+/// Fields the Prns-native `interface_vitals` report adds on top of the stock interface
+/// names. They are deliberately not stock spellings: no RNS peer reads this report.
+pub mod vitals {
+    pub const ID: &str = "id";
+    pub const FAILURE_REASON: &str = "failure_reason";
+    pub const TRANSFER_RATES: &str = "rates";
+    pub const FRAMES: &str = "frames";
+    pub const UPTIME_MS: &str = "uptime_ms";
+}
+
 pub mod interface {
     pub const INTERFACES: &str = "interfaces";
     pub const NAME: &str = "name";

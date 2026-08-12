@@ -30,6 +30,8 @@ pub(super) mod argument {
 
 pub(super) mod get {
     pub const INTERFACE_STATS: &str = "interface_stats";
+    /// Prns-native. Stock RNS never sends it, so it has no legacy pickle spelling.
+    pub const INTERFACE_VITALS: &str = "interface_vitals";
     pub const PATH_TABLE: &str = "path_table";
     pub const RATE_TABLE: &str = "rate_table";
     pub const NEXT_HOP_INTERFACE_NAME: &str = "next_hop_if_name";
@@ -63,6 +65,7 @@ pub(super) mod verb {
     use super::{get, selector};
 
     pub const GET_INTERFACE_STATS: &str = get::INTERFACE_STATS;
+    pub const GET_INTERFACE_VITALS: &str = get::INTERFACE_VITALS;
     pub const GET_PATH_TABLE: &str = get::PATH_TABLE;
     pub const GET_RATE_TABLE: &str = get::RATE_TABLE;
     pub const GET_LINK_COUNT: &str = get::LINK_COUNT;

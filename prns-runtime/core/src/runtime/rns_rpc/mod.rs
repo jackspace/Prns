@@ -1,7 +1,9 @@
 use alloc::vec::Vec;
 
 use prns_core::identity::IdentityHash;
-use prns_core::interfaces::rns_management::{RnsInterfaceStats, RnsTransportStatus};
+use prns_core::interfaces::rns_management::{
+    RnsInterfaceStats, RnsInterfaceVitalsReport, RnsTransportStatus,
+};
 use prns_core::interfaces::shared_instance::rns_rpc::{
     DestinationDataOperation, LegacyRpcReplyPlan, RnsRpcReply, RnsRpcReplyEncodeError,
     RnsRpcRequest, RpcOperationOutcome, RpcRequest, RpcVerb,
@@ -102,6 +104,10 @@ where
         RnsRpcRequest::InterfaceStats => {
             RnsRpcReply::interface_stats(interface_stats_with_transport(query, transport_status))
         }
+
+        RnsRpcRequest::InterfaceVitals => RnsRpcReply::interface_vitals(
+            RnsInterfaceVitalsReport::of(query.interface_vitals_inventory()),
+        ),
 
         RnsRpcRequest::PathTable { max_hops } => {
             RnsRpcReply::path_table(query.routes().await, max_hops.as_ref())

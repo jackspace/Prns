@@ -24,6 +24,7 @@ struct RpcTelemetryInner {
     msgpack_requests: AtomicU64,
     pickle_requests: AtomicU64,
     get_interface_stats: AtomicU64,
+    get_interface_vitals: AtomicU64,
     get_path_table: AtomicU64,
     get_rate_table: AtomicU64,
     get_link_count: AtomicU64,
@@ -50,6 +51,7 @@ pub struct RpcTelemetrySnapshot {
     pub msgpack_requests: u64,
     pub pickle_requests: u64,
     pub get_interface_stats: u64,
+    pub get_interface_vitals: u64,
     pub get_path_table: u64,
     pub get_rate_table: u64,
     pub get_link_count: u64,
@@ -79,6 +81,7 @@ impl RpcTelemetry {
             msgpack_requests: load(&self.inner.msgpack_requests),
             pickle_requests: load(&self.inner.pickle_requests),
             get_interface_stats: load(&self.inner.get_interface_stats),
+            get_interface_vitals: load(&self.inner.get_interface_vitals),
             get_path_table: load(&self.inner.get_path_table),
             get_rate_table: load(&self.inner.get_rate_table),
             get_link_count: load(&self.inner.get_link_count),
@@ -113,6 +116,10 @@ impl RpcTelemetry {
             RpcVerb::GetInterfaceStats => self
                 .inner
                 .get_interface_stats
+                .fetch_add(1, Ordering::Relaxed),
+            RpcVerb::GetInterfaceVitals => self
+                .inner
+                .get_interface_vitals
                 .fetch_add(1, Ordering::Relaxed),
             RpcVerb::GetPathTable => self.inner.get_path_table.fetch_add(1, Ordering::Relaxed),
             RpcVerb::GetRateTable => self.inner.get_rate_table.fetch_add(1, Ordering::Relaxed),

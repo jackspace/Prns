@@ -122,6 +122,9 @@ impl PacketHashArgument {
 #[derive(Debug, PartialEq)]
 pub enum RnsRpcRequest {
     InterfaceStats,
+    /// Prns-native: every interface's full `InterfaceVitals`, including the frame split and
+    /// the reporting node's uptime, neither of which survives the `interface_stats` snapshot.
+    InterfaceVitals,
     PathTable {
         max_hops: Option<RnsInteger>,
     },
@@ -185,6 +188,10 @@ impl RnsRpcRequest {
         let mut encoder = PickleRequestEncoder::new();
         match self {
             Self::InterfaceStats => encode_pickle_get(&mut encoder, get::INTERFACE_STATS)?,
+            // Spelled for completeness only. The pickle dialect is the fallback for RNS
+            // through 1.3.3, and no such peer answers this verb — `classify_pickle_rpc_verb`
+            // rejects it as an unknown operation, which the tests below pin.
+            Self::InterfaceVitals => encode_pickle_get(&mut encoder, get::INTERFACE_VITALS)?,
             Self::PathTable { max_hops } => {
                 encoder.string_field(selector::GET, get::PATH_TABLE)?;
                 encoder.field(argument::MAX_HOPS)?;
@@ -293,6 +300,7 @@ impl RnsRpcRequest {
         let mut encoder = MessagePackEncoder::new();
         match self {
             Self::InterfaceStats => encode_get(&mut encoder, get::INTERFACE_STATS)?,
+            Self::InterfaceVitals => encode_get(&mut encoder, get::INTERFACE_VITALS)?,
             Self::PathTable { max_hops } => {
                 encoder.map(2)?;
                 encoder.string_field(selector::GET, get::PATH_TABLE)?;
@@ -994,6 +1002,10 @@ fn decode_get(mut fields: Fields) -> Result<RnsRpcRequest, DecodeError> {
         get::INTERFACE_STATS => {
             fields.ensure_only(&[selector::GET])?;
             Ok(RnsRpcRequest::InterfaceStats)
+        }
+        get::INTERFACE_VITALS => {
+            fields.ensure_only(&[selector::GET])?;
+            Ok(RnsRpcRequest::InterfaceVitals)
         }
         get::PATH_TABLE => {
             fields.ensure_only(&[selector::GET, argument::MAX_HOPS])?;

@@ -8,6 +8,7 @@ use crate::units::InstantMillis;
 
 mod blackhole_table;
 mod interface_stats;
+mod interface_vitals;
 mod message_pack;
 mod path_table;
 mod rate_table;
@@ -18,6 +19,10 @@ pub mod wire_names;
 pub use blackhole_table::{RnsBlackholeDecodeError, RnsBlackholeTable};
 pub use interface_stats::{
     RnsInterfaceAccessCode, RnsInterfaceStats, RnsInterfaceStatsEntry, RnsTransportStatus,
+};
+pub use interface_vitals::{
+    RnsInterfaceVitalsDecodeError, RnsInterfaceVitalsEntry, RnsInterfaceVitalsReport,
+    RELAYED_FAILURE,
 };
 pub(crate) use message_pack::MessagePackEncoder;
 pub use path_table::{RnsPathTable, RnsPathTableDecodeError, RnsPathTableEntry, RnsPathTableField};

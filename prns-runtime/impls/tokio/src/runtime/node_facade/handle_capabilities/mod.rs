@@ -3,7 +3,7 @@ use std::future::Future;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 
-use crate::interfaces::PacketPhyStats;
+use crate::interfaces::{InterfaceVitals, PacketPhyStats};
 use crate::manifold::driver::HostCommand;
 use crate::node_introspection::{
     AnnounceRateSnapshot, DestinationIdentityQuery, DestinationIdentitySnapshot,
@@ -243,6 +243,10 @@ impl IdentityBlackholeControl for PrnsNodeHandle {
 impl NodeIntrospection for PrnsNodeHandle {
     fn interface_inventory(&self) -> std::vec::Vec<InterfaceInventoryEntry> {
         PrnsNodeHandle::interface_inventory(self)
+    }
+
+    fn interface_vitals_inventory(&self) -> std::vec::Vec<(Option<String>, InterfaceVitals)> {
+        PrnsNodeHandle::interface_vitals_inventory(self)
     }
 
     async fn link_count(&self) -> u32 {

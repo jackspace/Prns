@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::future::Future;
 
 use prns_core::engine::{AnnounceRateState, RouteSnapshot};
-use prns_core::interfaces::PacketPhyStats;
+use prns_core::interfaces::{InterfaceVitals, PacketPhyStats};
 use prns_core::routing::announce::AnnounceRateAccounting;
 use prns_core::routing::dedup::PacketHash;
 use prns_core::units::InstantMillis;
@@ -76,6 +76,12 @@ impl HeapAnnounceRateHistory {
 
 pub trait NodeIntrospection {
     fn interface_inventory(&self) -> Vec<InterfaceInventoryEntry<String>>;
+
+    /// Every interface's vitals as the interface itself reported them, with no
+    /// `InterfaceSnapshot` conversion in between. The conversion is lossy in exactly the two
+    /// places that matter for diagnosing a silent link — `frames` and `uptime_ms` — so a
+    /// caller that needs them cannot go through `interface_inventory`.
+    fn interface_vitals_inventory(&self) -> Vec<(Option<String>, InterfaceVitals)>;
 
     fn link_count(&self) -> impl Future<Output = u32> + Send;
 
