@@ -47,16 +47,82 @@ fn changed_line(
     previous: Option<&IgnoreReasonCounts>,
     current: &IgnoreReasonCounts,
 ) -> Option<String> {
-    let mut parts = Vec::new();
-    for (reason, count) in current.iter() {
-        if count == 0 {
-            continue;
-        }
+    render(current.iter().map(|(reason, count)| {
         let before = previous.map_or(0, |previous| previous.get(reason));
-        if previous.is_some() && before == count {
+        (format!("{reason:?}"), count, before)
+    }))
+}
+
+/// Split out from the counter type so the suppression rules can be tested directly. The
+/// counters themselves can only be advanced from inside the engine, so a test that had to
+/// build a populated `IgnoreReasonCounts` could not exercise any of this.
+///
+/// `had_previous` is carried per entry as `before`, with a first sample passing 0, because the
+/// first sample after start must print a non-zero counter rather than suppress it as unchanged.
+fn render(entries: impl Iterator<Item = (String, u64, u64)>) -> Option<String> {
+    let mut parts = Vec::new();
+    for (name, count, before) in entries {
+        if count == 0 || count == before {
             continue;
         }
-        parts.push(format!("{reason:?}={count}(+{})", count.saturating_sub(before)));
+        parts.push(format!("{name}={count}(+{})", count.saturating_sub(before)));
     }
     (!parts.is_empty()).then(|| parts.join(" "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render;
+
+    fn line(entries: &[(&str, u64, u64)]) -> Option<String> {
+        render(
+            entries
+                .iter()
+                .map(|(name, count, before)| ((*name).to_string(), *count, *before)),
+        )
+    }
+
+    #[test]
+    fn a_quiet_node_prints_nothing() {
+        assert_eq!(line(&[("NotForUs", 0, 0), ("OtherInstance", 0, 0)]), None);
+    }
+
+    /// The whole point: a counter that has not moved must not reappear every ten seconds, or
+    /// the log fills and the operator stops reading it.
+    #[test]
+    fn an_unchanged_counter_is_suppressed() {
+        assert_eq!(line(&[("NotForUs", 14, 14)]), None);
+    }
+
+    #[test]
+    fn a_moving_counter_prints_its_total_and_delta() {
+        assert_eq!(
+            line(&[("NotForUs", 14, 3)]),
+            Some(String::from("NotForUs=14(+11)"))
+        );
+    }
+
+    /// A non-zero counter on the first sample has `before` 0, and must print rather than be
+    /// mistaken for unchanged — otherwise a daemon that was already dropping traffic before the
+    /// logger started would look silent.
+    #[test]
+    fn the_first_sample_prints_an_already_nonzero_counter() {
+        assert_eq!(
+            line(&[("OtherInstance", 27, 0)]),
+            Some(String::from("OtherInstance=27(+27)"))
+        );
+    }
+
+    #[test]
+    fn only_the_reasons_that_moved_appear() {
+        assert_eq!(
+            line(&[
+                ("Duplicate", 5, 5),
+                ("NotForUs", 12, 1),
+                ("NoRoute", 0, 0),
+                ("OtherInstance", 3, 2),
+            ]),
+            Some(String::from("NotForUs=12(+11) OtherInstance=3(+1)"))
+        );
+    }
 }
