@@ -389,6 +389,8 @@ where
     let metrics = observability.spawn_metrics_reporter(handle.clone(), started);
     #[cfg(not(feature = "otlp"))]
     let _ = (observability, started);
+    #[cfg(feature = "ignored-log")]
+    crate::observability::ignored_log::spawn(handle.clone());
     (
         node,
         BackgroundTasks {

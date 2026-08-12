@@ -86,6 +86,9 @@ observability = [
     "dep:tracing-subscriber",
 ]
 tray = ["dep:ksni", "dep:tray-icon", "dep:winit"]
+# The engine's ignore counters, logged periodically instead of exported. Diagnosing a link
+# that swallows traffic needs the reasons, not a collector.
+ignored-log = ["observability", "personal-rns/runtime-metrics"]
 otlp = [
     "observability",
     "personal-rns/runtime-metrics",

@@ -28,6 +28,8 @@ use tracing_subscriber::Layer;
 use crate::cli::LogFormat;
 use personal_rns::config::LoggingPlan;
 
+#[cfg(feature = "ignored-log")]
+pub(crate) mod ignored_log;
 #[cfg(feature = "otlp")]
 mod metrics;
 mod progress;
