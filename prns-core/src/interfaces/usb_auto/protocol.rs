@@ -120,7 +120,7 @@ pub struct VitalsReport {
 }
 
 const VITALS_FIXED_LEN: usize = 8 + 1 + 8 + 8 + 8 + 1;
-const VITALS_FRAMES_LEN: usize = 4 * 8;
+const VITALS_FRAMES_LEN: usize = 5 * 8;
 const VITALS_FRAMES_ABSENT: u8 = 0;
 const VITALS_FRAMES_PRESENT: u8 = 1;
 
@@ -201,9 +201,10 @@ impl Message<'_> {
                     Some(frames) => {
                         body[33] = VITALS_FRAMES_PRESENT;
                         body[34..42].copy_from_slice(&frames.frames_in.to_be_bytes());
-                        body[42..50].copy_from_slice(&frames.malformed.to_be_bytes());
-                        body[50..58].copy_from_slice(&frames.undecodable.to_be_bytes());
-                        body[58..66].copy_from_slice(&frames.delivered.to_be_bytes());
+                        body[42..50].copy_from_slice(&frames.frames_out.to_be_bytes());
+                        body[50..58].copy_from_slice(&frames.malformed.to_be_bytes());
+                        body[58..66].copy_from_slice(&frames.undecodable.to_be_bytes());
+                        body[66..74].copy_from_slice(&frames.delivered.to_be_bytes());
                     }
                 }
                 Ok(total)
@@ -270,9 +271,10 @@ fn decode_vitals(body: &[u8]) -> Result<VitalsReport, MalformedMessage> {
         (VITALS_FRAMES_ABSENT, 0) => None,
         (VITALS_FRAMES_PRESENT, VITALS_FRAMES_LEN) => Some(FrameAccounting {
             frames_in: be_u64(&frames_body[..8]),
-            malformed: be_u64(&frames_body[8..16]),
-            undecodable: be_u64(&frames_body[16..24]),
-            delivered: be_u64(&frames_body[24..32]),
+            frames_out: be_u64(&frames_body[8..16]),
+            malformed: be_u64(&frames_body[16..24]),
+            undecodable: be_u64(&frames_body[24..32]),
+            delivered: be_u64(&frames_body[32..40]),
         }),
         _ => return Err(MalformedMessage::MalformedVitals),
     };
@@ -410,7 +412,13 @@ mod tests {
             any::<[u8; 8]>(),
             any::<u8>(),
             any::<(u64, u64, u64)>(),
-            prop::option::of((any::<u64>(), any::<u64>(), any::<u64>(), any::<u64>())),
+            prop::option::of((
+                any::<u64>(),
+                any::<u64>(),
+                any::<u64>(),
+                any::<u64>(),
+                any::<u64>(),
+            )),
         )
             .prop_map(
                 |(id, connection, (uptime_ms, rx_bytes, tx_bytes), frames)| VitalsReport {
@@ -419,14 +427,17 @@ mod tests {
                     uptime_ms,
                     rx_bytes,
                     tx_bytes,
-                    frames: frames.map(|(frames_in, malformed, undecodable, delivered)| {
-                        FrameAccounting {
-                            frames_in,
-                            malformed,
-                            undecodable,
-                            delivered,
-                        }
-                    }),
+                    frames: frames.map(
+                        |(frames_in, frames_out, malformed, undecodable, delivered)| {
+                            FrameAccounting {
+                                frames_in,
+                                frames_out,
+                                malformed,
+                                undecodable,
+                                delivered,
+                            }
+                        },
+                    ),
                 },
             )
     }
@@ -604,6 +615,7 @@ mod tests {
     fn vitals_round_trip_with_frame_accounting() {
         let report = sample_vitals(Some(FrameAccounting {
             frames_in: 61,
+            frames_out: 33,
             malformed: 2,
             undecodable: 17,
             delivered: 40,

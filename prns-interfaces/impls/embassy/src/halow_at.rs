@@ -519,6 +519,7 @@ async fn transmit<R: Read, W: Write, Seam: InterfaceSeam>(
         )
         .await?;
         let now = InstantMillis(started.elapsed().as_millis());
+        status.count_frame_out();
         status.add_tx(air_len as u64);
         throughput.record_tx(now, air_len as u64);
         status.set_transfer_rates(throughput.rates());

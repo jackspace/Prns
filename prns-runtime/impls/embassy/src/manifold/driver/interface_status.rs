@@ -18,6 +18,7 @@ pub struct EmbassyInterfaceStatus {
     enabled_changed: Signal<CriticalSectionRawMutex, bool>,
     accounts_frames: AtomicBool,
     frames_in: AtomicU64,
+    frames_out: AtomicU64,
     frames_malformed: AtomicU64,
     frames_undecodable: AtomicU64,
     frames_delivered: AtomicU64,
@@ -40,6 +41,7 @@ impl EmbassyInterfaceStatus {
             enabled_changed: Signal::new(),
             accounts_frames: AtomicBool::new(false),
             frames_in: AtomicU64::new(0),
+            frames_out: AtomicU64::new(0),
             frames_malformed: AtomicU64::new(0),
             frames_undecodable: AtomicU64::new(0),
             frames_delivered: AtomicU64::new(0),
@@ -128,6 +130,10 @@ impl EmbassyInterfaceStatus {
         self.frames_in.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn count_frame_out(&self) {
+        self.frames_out.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn count_frame_malformed(&self) {
         self.frames_malformed.fetch_add(1, Ordering::Relaxed);
     }
@@ -189,6 +195,7 @@ impl InterfaceStatus for EmbassyInterfaceStatus {
         }
         Some(FrameAccounting {
             frames_in: self.frames_in.load(Ordering::Relaxed),
+            frames_out: self.frames_out.load(Ordering::Relaxed),
             malformed: self.frames_malformed.load(Ordering::Relaxed),
             undecodable: self.frames_undecodable.load(Ordering::Relaxed),
             delivered: self.frames_delivered.load(Ordering::Relaxed),

@@ -916,11 +916,12 @@ mod tests {
                 assert_eq!(
                     (
                         frames.frames_in,
+                        frames.frames_out,
                         frames.malformed,
                         frames.undecodable,
                         frames.delivered
                     ),
-                    (1, 0, 1, 0)
+                    (1, 0, 0, 1, 0)
                 );
             };
 

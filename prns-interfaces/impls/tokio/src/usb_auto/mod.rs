@@ -779,6 +779,7 @@ mod tests {
             tx_bytes: 77,
             frames: Some(FrameAccounting {
                 frames_in: 61,
+                frames_out: 33,
                 malformed: 2,
                 undecodable: 17,
                 delivered: 40,
@@ -808,11 +809,12 @@ mod tests {
         assert_eq!(
             (
                 frames.frames_in,
+                frames.frames_out,
                 frames.malformed,
                 frames.undecodable,
                 frames.delivered
             ),
-            (61, 2, 17, 40)
+            (61, 33, 2, 17, 40)
         );
         // The host's own entry stays first, so existing single-entry consumers see what they
         // always saw.
