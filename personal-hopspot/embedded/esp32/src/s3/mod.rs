@@ -674,10 +674,11 @@ macro_rules! boot_rtos_tail {
             ::personal_rns::engine::InstantMillis(rtc.current_time_us() / 1000),
         );
         ::esp_println::println!(
-            "{} boot {} commit={} reset={:?} previous_phase={} — recipe runtime, engine core 1 + I/O core 0",
+            "{} boot {} commit={} features={} reset={:?} previous_phase={} — recipe runtime, engine core 1 + I/O core 0",
             $banner,
             env!("HOPSPOT_BUILD_IDENTITY"),
             env!("HOPSPOT_BUILD_COMMIT_SHORT"),
+            env!("HOPSPOT_BUILD_FEATURES"),
             ::esp_hal::system::reset_reason(),
             $crate::s3::previous_boot_phase()
         );

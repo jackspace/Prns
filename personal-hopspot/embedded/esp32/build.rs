@@ -36,6 +36,20 @@ fn main() {
     println!(
         "cargo:rustc-env=HOPSPOT_BUILD_IDENTITY=version={build_version} source={build_source_digest}"
     );
+    // The enabled feature set, so the boot banner names the shape actually on the board. Two
+    // images built from the same commit at the same target path can differ only here, and "which
+    // shape is this board running" must be answerable from one console line at boot.
+    let mut features: Vec<String> = env::vars()
+        .filter_map(|(key, _)| {
+            key.strip_prefix("CARGO_FEATURE_")
+                .map(|name| name.to_lowercase().replace('_', "-"))
+        })
+        .collect();
+    features.sort();
+    println!(
+        "cargo:rustc-env=HOPSPOT_BUILD_FEATURES={}",
+        features.join(",")
+    );
 }
 
 fn git_commit_short() -> String {
