@@ -14,7 +14,7 @@
 //! query the config → set only what differs → re-query, and any send failure or unexpected
 //! reboot tears the interface down through [`ReconnectPolicy`] backoff into a fresh reset.
 
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{select4, Either4};
 use embassy_time::{with_timeout, Duration, Instant};
 use heapless::String as HeaplessString;
 use heapless::Vec as HeaplessVec;
@@ -63,6 +63,16 @@ const BOOT_SETTLE: Duration = Duration::from_millis(1500);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 /// The two per-chunk waits: the OK that prompts for raw bytes, and the OK/ERROR verdict after.
 const TX_STEP_TIMEOUT: Duration = Duration::from_secs(1);
+/// How long the RF receive path may stay silent before the driver concludes the module has
+/// wedged and routes through the reset machinery. The wedge this catches was proven on the
+/// bench: RF reception dies while the AT console keeps answering, so no command-level probe can
+/// see it — only the absence of air frames can. Any [`AtStep::RxFrame`] rearms the deadline,
+/// own echoes included, because each one proves the receive path end to end. A healthy fleet
+/// announcing every 60 s never comes near this; a genuinely lone node resets its idle module
+/// every five minutes at a cost of ~2 s and no identity, which is the right trade against a
+/// wedge that otherwise persists forever behind green health signals.
+// Deployment-tuned: sized against the bench fleet's 60 s announce cadence.
+const RX_SILENCE_RESET: Duration = Duration::from_secs(300);
 
 const ENCODE_CAP: usize = rns_serial_framing::max_encoded_len(HALOW_AT_MAX_WIRE_FRAME_LEN);
 
@@ -221,17 +231,19 @@ impl<R: Read, W: Write> Interface for HalowAtInterface<'_, R, W> {
                 own_mac[0], own_mac[1], own_mac[2], own_mac[3], own_mac[4], own_mac[5]
             );
 
+            let mut rx_heard_at = Instant::now();
             let fault = 'steady: loop {
                 let mut rx_buf = [0u8; 64];
-                match select3(
+                match select4(
                     uart_rx.read(&mut rx_buf),
                     seam.next_outbound(),
                     status.wait_until_disabled(),
+                    embassy_time::Timer::at(rx_heard_at + RX_SILENCE_RESET),
                 )
                 .await
                 {
-                    Either3::First(Err(_) | Ok(0)) => break 'steady Some(Fault::Uart),
-                    Either3::First(Ok(read)) => {
+                    Either4::First(Err(_) | Ok(0)) => break 'steady Some(Fault::Uart),
+                    Either4::First(Ok(read)) => {
                         for &byte in &rx_buf[..read] {
                             match console.feed(byte) {
                                 AtStep::None => {}
@@ -243,6 +255,7 @@ impl<R: Read, W: Write> Interface for HalowAtInterface<'_, R, W> {
                                     }
                                 }
                                 AtStep::RxFrame => {
+                                    rx_heard_at = Instant::now();
                                     deliver(
                                         console.rx_frame(),
                                         own_mac,
@@ -257,7 +270,17 @@ impl<R: Read, W: Write> Interface for HalowAtInterface<'_, R, W> {
                             }
                         }
                     }
-                    Either3::Second(outbound) => {
+                    Either4::Fourth(()) => {
+                        // The wedge produces no fault of its own, so silence is the only
+                        // symptom, and this arm is what finally asks for the reset that
+                        // clears it.
+                        crate::diagnostic_log::warn!(
+                            "RNS_HALOW_AT liveness: no air frame in {}s; resetting module",
+                            RX_SILENCE_RESET.as_secs()
+                        );
+                        break 'steady Some(Fault::Module);
+                    }
+                    Either4::Second(outbound) => {
                         let len = outbound.len().min(custody.len());
                         custody[..len].copy_from_slice(&outbound[..len]);
                         seam.accept_outbound_custody();
@@ -286,7 +309,7 @@ impl<R: Read, W: Write> Interface for HalowAtInterface<'_, R, W> {
                             }
                         }
                     }
-                    Either3::Third(()) => break 'steady None,
+                    Either4::Third(()) => break 'steady None,
                 }
             };
 
