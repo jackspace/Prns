@@ -372,11 +372,19 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     // The radios the USB peer has no console to: their vitals cross the link when the peer
     // advertises the capability. HaLow first because its bench runs are exactly the case where
     // the daemon owns the only console.
+    //
+    // The USB lane reports too, even though the peer is the other end of it. The peer knows what
+    // it wrote; it does not know what the board received, and the gap between those two numbers
+    // is the only place a byte lost on this hop can be seen from. Without it a daemon and a board
+    // can disagree about a frame indefinitely with every counter on both sides looking healthy.
     #[cfg(feature = "halow-at")]
-    let vitals_sources: &'static [&'static EmbassyInterfaceStatus] =
-        mk_static!([&'static EmbassyInterfaceStatus; 1], [halow_status]);
+    let vitals_sources: &'static [&'static EmbassyInterfaceStatus] = mk_static!(
+        [&'static EmbassyInterfaceStatus; 2],
+        [halow_status, usb_status]
+    );
     #[cfg(not(feature = "halow-at"))]
-    let vitals_sources: &'static [&'static EmbassyInterfaceStatus] = &[];
+    let vitals_sources: &'static [&'static EmbassyInterfaceStatus] =
+        mk_static!([&'static EmbassyInterfaceStatus; 1], [usb_status]);
     spawner.spawn(
         usb_device_task(usb_rx, usb_tx, usb_seam, usb_status, vitals_sources)
             .expect("usb task fits"),
