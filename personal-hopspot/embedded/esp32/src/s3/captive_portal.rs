@@ -373,16 +373,6 @@ fn dns_question_end(req: &[u8]) -> Option<(usize, u16)> {
     Some((pos + 4, qtype))
 }
 
-/// Receive window for the portal sockets. Sized for the firmware upload, which is the only
-/// request that streams more than a page. Four times the original 4 KiB.
-///
-/// Not larger: at 64 KiB per socket this board reached `network.ready` and then died in the
-/// allocator a few seconds later with "Freed node aliases existing hole! Bad free?" at an
-/// internal-SRAM address, reproducibly, where the 4 KiB build ran for many minutes across
-/// several boots. Something in that allocation size disturbs a heap this firmware shares with
-/// the radio stack. Worth finding, but the window does not need to be that big.
-#[cfg(feature = "wifi-auto")]
-const UPLOAD_RX_WINDOW: usize = 16 * 1024;
 /// Long enough to outlast one flash sector erase plus write under radio load, with margin.
 ///
 /// Generous on purpose. A firmware upload over a poor link has been measured at a few KB/s on
@@ -399,6 +389,12 @@ const CAPTIVE_PORTAL_PAGE: &[u8] = include_bytes!("../../assets/captive-portal.h
 // measured on a V4-R8 at roughly 800 B/s, dying on the socket timeout twenty thousand bytes into
 // a 1.6 MB image. A larger window lets the peer keep the pipe full across each stall. Both
 // buffers come out of the PSRAM-backed global heap.
+//
+// Not larger: at 64 KiB per socket this board reached `network.ready` and then died in the
+// allocator a few seconds later with "Freed node aliases existing hole! Bad free?" at an
+// internal-SRAM address, reproducibly, where the 4 KiB build ran for many minutes across several
+// boots. Something in that allocation size disturbs a heap this firmware shares with the radio
+// stack. Worth finding, but the window does not need to be that big.
 const HTTP_SOCKET_BUFFER_BYTES: usize = 16 * 1024;
 #[cfg(feature = "wifi-auto")]
 const HTTP_REQUEST_BUFFER_BYTES: usize = 4096;
@@ -465,24 +461,31 @@ async fn serve_site_connection<'a>(
     // A POST body can be binary and can begin inside the same read as the headers, so only the
     // header region is decoded as UTF-8; the remainder is handed to the body reader untouched.
     let header_len = http_body_start(&request_buffer[..len]).unwrap_or(len);
-    let request = core::str::from_utf8(&request_buffer[..header_len]).map_err(|_| ())?;
-    let Some(line) = request.lines().next() else {
-        return Err(());
-    };
-    let mut parts = line.split_ascii_whitespace();
-    let method = parts.next().unwrap_or("");
-    let raw_path = parts.next().unwrap_or("/");
-    let is_head = method == "HEAD";
-    let path = normalize_http_path(raw_path);
-    if let Some(route) = update::route(method, path) {
-        let framing = update::BodyFraming {
-            body_start: header_len,
-            buffered_len: len,
-            content_length: request_content_length(request),
+    // Decide the update routes inside a short-lived borrow. `HttpResponseAttempt` holds `&'a str`
+    // slices of this buffer, so parsing once at `'a` would keep it immutably borrowed for the
+    // whole function and `serve` could never take it mutably to stream a firmware image.
+    let update_route = {
+        let request = core::str::from_utf8(&request_buffer[..header_len]).map_err(|_| ())?;
+        let Some(line) = request.lines().next() else {
+            return Err(());
         };
-        // Name the route from the table rather than from the request line: `serve` needs
-        // `request_buffer` mutably to stream the body, so the borrow behind `method` and
-        // `raw_path` has to end before the call rather than outlive it in the attempt.
+        let mut parts = line.split_ascii_whitespace();
+        let method = parts.next().unwrap_or("");
+        let raw_path = parts.next().unwrap_or("/");
+        update::route(method, normalize_http_path(raw_path)).map(|route| {
+            (
+                route,
+                update::BodyFraming {
+                    body_start: header_len,
+                    buffered_len: len,
+                    content_length: request_content_length(request),
+                },
+            )
+        })
+    };
+    if let Some((route, framing)) = update_route {
+        // Name the route from the table rather than the request line: the parse borrow above has
+        // ended, and re-deriving these strings here would reopen it.
         let (route_method, route_path) = match route {
             update::Route::Page => ("GET", "/update"),
             update::Route::Status => ("GET", "/update/status"),
@@ -498,6 +501,15 @@ async fn serve_site_connection<'a>(
             written,
         });
     }
+    let request = core::str::from_utf8(&request_buffer[..header_len]).map_err(|_| ())?;
+    let Some(line) = request.lines().next() else {
+        return Err(());
+    };
+    let mut parts = line.split_ascii_whitespace();
+    let method = parts.next().unwrap_or("");
+    let raw_path = parts.next().unwrap_or("/");
+    let is_head = method == "HEAD";
+    let path = normalize_http_path(raw_path);
     let response = if method != "GET" && !is_head {
         send_site_response(
             socket,
@@ -535,7 +547,6 @@ async fn serve_site_connection<'a>(
             },
         )
         .await
-    };
     };
     Ok(HttpResponseAttempt {
         method,
