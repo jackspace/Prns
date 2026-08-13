@@ -611,6 +611,87 @@ mod tests {
             AnnounceAcceptanceDecision::Reject(RejectReason::KnownRouteNoNewerEvidence)
         );
     }
+
+    // The announce stamp is the origin's own clock, and on the ESP32 boards it is seeded from
+    // `rtc.current_time_us()` at boot and never set from a wall clock, so it restarts near zero
+    // on every reset. These three pin what that means for a peer that already knows the route.
+
+    #[test]
+    fn a_rebooted_sender_reads_as_stale_at_equal_hops() {
+        // Stored: the sender had been up ~25 hours when it was last heard.
+        let stored = announce_id(0xD1, 90_000);
+        // Incoming: same sender, same route, 12 seconds after a reset.
+        let decision = decide(AnnounceAcceptanceInput {
+            incoming_interface_gravity: None,
+            packet_hops: 3,
+            announce_id: announce_id(0xD2, 12),
+            destination_is_self_or_upstream: false,
+            existing_route: Some(ExistingRoute {
+                interface_gravity: None,
+                hops: crate::units::HopCount(3),
+                expires_at: InstantMillis(10_000),
+                announce_id_history: core::slice::from_ref(&stored),
+                responsiveness: RouteResponsiveness::Responsive,
+            }),
+            arrived_at: InstantMillis(1_000),
+        });
+        assert_eq!(
+            decision,
+            AnnounceAcceptanceDecision::Reject(RejectReason::KnownRouteNoNewerEvidence),
+            "a sender whose clock restarted can never out-stamp what the peer already stored",
+        );
+    }
+
+    #[test]
+    fn an_expired_route_does_not_rescue_a_rebooted_sender_at_equal_hops() {
+        let stored = announce_id(0xD3, 90_000);
+        let decision = decide(AnnounceAcceptanceInput {
+            incoming_interface_gravity: None,
+            packet_hops: 3,
+            announce_id: announce_id(0xD4, 12),
+            destination_is_self_or_upstream: false,
+            existing_route: Some(ExistingRoute {
+                interface_gravity: None,
+                hops: crate::units::HopCount(3),
+                // Long expired: arrived_at is well past expires_at.
+                expires_at: InstantMillis(1_000),
+                announce_id_history: core::slice::from_ref(&stored),
+                responsiveness: RouteResponsiveness::Responsive,
+            }),
+            arrived_at: InstantMillis(50_000),
+        });
+        assert_eq!(
+            decision,
+            AnnounceAcceptanceDecision::Reject(RejectReason::KnownRouteNoNewerEvidence),
+            "the equal-hops arm returns before it ever consults expiry, so the rejection never ages out",
+        );
+    }
+
+    #[test]
+    fn an_expired_route_does_rescue_a_rebooted_sender_at_longer_hops() {
+        // Same inputs as above but one hop longer, which is the arm that *does* consult expiry.
+        // The contrast is the point: the asymmetry is in the code, not in the scenario.
+        let stored = announce_id(0xD5, 90_000);
+        let decision = decide(AnnounceAcceptanceInput {
+            incoming_interface_gravity: None,
+            packet_hops: 4,
+            announce_id: announce_id(0xD6, 12),
+            destination_is_self_or_upstream: false,
+            existing_route: Some(ExistingRoute {
+                interface_gravity: None,
+                hops: crate::units::HopCount(3),
+                expires_at: InstantMillis(1_000),
+                announce_id_history: core::slice::from_ref(&stored),
+                responsiveness: RouteResponsiveness::Responsive,
+            }),
+            arrived_at: InstantMillis(50_000),
+        });
+        assert_eq!(
+            decision,
+            AnnounceAcceptanceDecision::Accept(AcceptReason::ExpiredRouteSucceededByLongerAlternative),
+            "the longer-hops arm recovers from the same stale stamp once the route expires",
+        );
+    }
 }
 
 #[cfg_attr(mutants, mutants::skip)]
