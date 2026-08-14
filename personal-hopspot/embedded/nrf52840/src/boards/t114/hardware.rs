@@ -12,10 +12,16 @@ use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use personal_rns::radios::sx126x::{BoardConfig, Sx126x, TcxoVoltage};
 
+use super::display::{self, T114Display};
+
+// The panel sits on SPI3 while the radio keeps TWISPI0, so the two never contend. Note the
+// interrupt is spelled SPIM3 in embassy-nrf 0.10's typelevel table even though the peripheral
+// stays SPI3.
 bind_interrupts!(pub(crate) struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;
     CLOCK_POWER => usb::vbus_detect::InterruptHandler;
     TWISPI0 => spim::InterruptHandler<peripherals::TWISPI0>;
+    SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
 });
 
 type T114SpiDevice = ExclusiveDevice<Spim<'static>, Output<'static>, Delay>;
@@ -29,6 +35,9 @@ pub(crate) struct T114Hardware {
     pub(crate) usb: T114UsbDriver,
     pub(crate) radio: T114Radio,
     pub(crate) led: Output<'static>,
+    /// `None` when the controller refused to initialise. A headless T114 is still a useful node,
+    /// so a dark panel must never take the radio down with it.
+    pub(crate) display: Option<T114Display>,
 }
 
 pub(crate) struct T114Board;
@@ -91,6 +100,28 @@ impl T114Board {
 
         let led = Output::new(peripherals.P1_03, Level::High, OutputDrive::Standard);
 
-        (identity, T114Hardware { usb, radio, led })
+        let display = display::initialise(
+            display::PanelPins {
+                bus: peripherals.SPI3,
+                sck: peripherals.P1_08,
+                mosi: peripherals.P1_09,
+                cs: peripherals.P0_11,
+                dc: peripherals.P0_12,
+                reset: peripherals.P0_02,
+                power: peripherals.P0_03,
+            },
+            Irqs,
+        )
+        .await;
+
+        (
+            identity,
+            T114Hardware {
+                usb,
+                radio,
+                led,
+                display,
+            },
+        )
     }
 }

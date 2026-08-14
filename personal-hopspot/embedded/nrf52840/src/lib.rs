@@ -35,6 +35,12 @@ compile_error!("nRF52840 board features are mutually exclusive");
 ))]
 mod boards;
 
+/// The T114 is the only board here with a colour panel, so its controller compiles only for it.
+/// Public because the driver carries configuration variants a single board never constructs, and
+/// CI builds with `-D warnings`.
+#[cfg(feature = "board-t114")]
+pub mod panels;
+
 #[cfg(any(
     all(
         feature = "board-t-echo",

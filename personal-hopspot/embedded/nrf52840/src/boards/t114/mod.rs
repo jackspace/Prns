@@ -1,3 +1,4 @@
+mod display;
 mod hardware;
 mod identity;
 mod storage;

@@ -118,6 +118,9 @@ pub async fn run(spawner: Spawner) -> ! {
         usb: usb_driver,
         radio,
         mut led,
+        // Bound rather than discarded: the panel owns its rail output, and dropping it here would
+        // cut power to the glass. Rendering the shared Hopspot surface onto it lands next.
+        display: _display,
     } = hardware;
 
     let mut usb_config = UsbConfig::new(WEBUSB_VENDOR_ID, WEBUSB_PRODUCT_ID);
