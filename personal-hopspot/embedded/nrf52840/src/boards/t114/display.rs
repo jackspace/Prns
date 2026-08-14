@@ -74,6 +74,12 @@ pub(crate) struct T114Display {
 impl T114Display {
     /// Paint the whole panel in one palette state. Enough to prove the controller is driving real
     /// glass, and the seam the shared Hopspot surface will render through.
+    ///
+    /// The frame is built on the stack rather than kept resident, which suits a one-shot paint and
+    /// costs nothing between calls. Measured: `PanelFrame` is 4,050 bytes and `present` holds a
+    /// 3,840 byte band buffer at the same time, so a call peaks at about 7.7 KiB against the 68 KiB
+    /// this target reserves. **A renderer that paints repeatedly should hold the frame resident
+    /// instead**, both to keep it off the stack and to diff against what is already on the glass.
     pub(crate) fn fill(&mut self, state: PixelState) {
         let mut frame = PanelFrame::default();
         frame.fill_all(state);
