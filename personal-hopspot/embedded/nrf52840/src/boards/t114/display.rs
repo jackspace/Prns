@@ -14,7 +14,8 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use personal_hopspot_core::{MOBILE_DARK_RGBA, MOBILE_LIT_RGBA};
 
 use crate::panels::st7789::{
-    ColorOrder, Palette, PanelConfig, PanelOrigin, PanelRotation, PixelInversion, St7789,
+    ColorOrder, Palette, PanelConfig, PanelFrame, PanelOrigin, PanelRotation, PixelInversion,
+    PixelState, St7789,
 };
 
 /// The 135x240 glass sits inside the controller's 240x320 frame memory, so a centred window starts
@@ -59,13 +60,27 @@ pub(crate) struct PanelPins {
     pub(crate) dc: Peri<'static, peripherals::P0_12>,
     pub(crate) reset: Peri<'static, peripherals::P0_02>,
     pub(crate) power: Peri<'static, peripherals::P0_03>,
+    pub(crate) backlight: Peri<'static, peripherals::P0_15>,
 }
 
-/// A live panel plus the rail that must outlive it.
+/// A live panel plus the two outputs that must outlive it.
 pub(crate) struct T114Display {
     pub(crate) panel: T114Panel,
-    /// Held, not used: dropping this output would cut power to the glass.
+    /// Held, not used: dropping either output would cut power to the glass or the backlight.
     _rail: Output<'static>,
+    _backlight: Output<'static>,
+}
+
+impl T114Display {
+    /// Paint the whole panel in one palette state. Enough to prove the controller is driving real
+    /// glass, and the seam the shared Hopspot surface will render through.
+    pub(crate) fn fill(&mut self, state: PixelState) {
+        let mut frame = PanelFrame::default();
+        frame.fill_all(state);
+        // A panel that fails mid-push must not take the node down, so the error is dropped here
+        // rather than propagated. The radio and USB do not care whether the glass is lit.
+        let _ = self.panel.present(&frame);
+    }
 }
 
 /// Raise the panel rail, let the glass settle, then bring the controller up.
@@ -108,5 +123,18 @@ where
         },
     )
     .ok()
-    .map(|panel| T114Display { panel, _rail: rail })
+    .map(|panel| {
+        // The backlight is behind an active-low P-FET too, so low is lit. The T-Echo's frontlight
+        // is active high; do not copy its polarity here.
+        let backlight = Output::new(pins.backlight, Level::Low, OutputDrive::Standard);
+        let mut display = T114Display {
+            panel,
+            _rail: rail,
+            _backlight: backlight,
+        };
+        // Paint once at bring-up so a working panel is visibly distinguishable from an unpowered
+        // one. Without this the glass stays dark and a dead controller looks identical.
+        display.fill(PixelState::Dark);
+        display
+    })
 }

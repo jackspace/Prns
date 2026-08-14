@@ -109,6 +109,7 @@ impl T114Board {
                 dc: peripherals.P0_12,
                 reset: peripherals.P0_02,
                 power: peripherals.P0_03,
+                backlight: peripherals.P0_15,
             },
             Irqs,
         )
