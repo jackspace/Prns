@@ -7,8 +7,13 @@
 
    This target does not enable the resident SoftDevice. RAM below 0x20006000
    remains reserved so the recovery layout matches the qualified board. */
-APPLICATION_FLASH_ORIGIN = 0x00026000;
-APPLICATION_FLASH_BYTES = 0xC3000;
+/* BENCH ADAPTATION, NOT FOR UPSTREAM. faro-t114 on this bench was re-bootloadered to S140 7.3.0
+   on 2026-08-08, so its bootloader starts applications at 0x27000, not the stock 0x26000. The
+   origin moves up one 4 KiB page and the region shrinks by the same page, so the END of the
+   application area stays exactly where mark-ik put it and the storage and identity offsets above
+   it are untouched. Revert both numbers before comparing against the qualified stock build. */
+APPLICATION_FLASH_ORIGIN = 0x00027000;
+APPLICATION_FLASH_BYTES = 0xC2000;
 APPLICATION_RAM_ORIGIN = 0x20006000;
 APPLICATION_RAM_BYTES = 0x3A000;
 MIN_RUNTIME_STACK_BYTES = 68K;
