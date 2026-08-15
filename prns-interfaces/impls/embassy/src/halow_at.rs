@@ -627,7 +627,7 @@ async fn deliver<Seam: InterfaceSeam>(
         return;
     }
     let now = InstantMillis(started.elapsed().as_millis());
-    status.count_frame_in();
+    status.count_frame_in(now.0);
     status.add_rx(air_frame.len() as u64);
     throughput.record_rx(now, air_frame.len() as u64);
     status.set_transfer_rates(throughput.rates());

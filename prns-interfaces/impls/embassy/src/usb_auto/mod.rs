@@ -274,6 +274,7 @@ where
                                 // The board's own monotonic clock, so each sample dates itself
                                 // regardless of host polling gaps.
                                 uptime_ms: Instant::now().as_millis(),
+                                last_frame_in_at_ms: source.last_frame_in_at_ms(),
                                 rx_bytes: source.rx_bytes(),
                                 tx_bytes: source.tx_bytes(),
                                 frames: source.frame_accounting(),
@@ -859,7 +860,7 @@ mod tests {
         let radio_id = InterfaceId::new([0xA1; 8]);
         let radio = EmbassyInterfaceStatus::new(radio_id, ConnectionState::Connected);
         radio.account_frames();
-        radio.count_frame_in();
+        radio.count_frame_in(41);
         radio.count_frame_undecodable();
         radio.add_rx(202);
 
@@ -912,6 +913,7 @@ mod tests {
                 assert_eq!(report.interface_id, radio_id);
                 assert_eq!(report.connection, ConnectionState::Connected);
                 assert_eq!(report.rx_bytes, 202);
+                assert_eq!(report.last_frame_in_at_ms, Some(41));
                 let frames = report.frames.expect("the radio accounts for frames");
                 assert_eq!(
                     (

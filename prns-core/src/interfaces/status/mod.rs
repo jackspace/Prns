@@ -58,6 +58,14 @@ pub trait InterfaceStatus {
     fn frame_accounting(&self) -> Option<FrameAccounting> {
         None
     }
+
+    /// The family's own monotonic clock when an inbound frame was last accepted, `None` before
+    /// the first one. Read beside `frame_accounting`: the totals say how much, this says how
+    /// recently, and only the pair can tell a frozen interface from a quiet one in one look —
+    /// the totals are monotonic, and `connection` only dissents once the link layer notices.
+    fn last_frame_in_at_ms(&self) -> Option<u64> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +87,10 @@ pub struct InterfaceVitals {
     /// The reporting node's own monotonic clock when this snapshot was produced. `Some` only
     /// for snapshots relayed from a remote node; local reads have no use for it.
     pub uptime_ms: Option<u64>,
+    /// That same clock when the interface last accepted an inbound frame, `None` before the
+    /// first one. With `uptime_ms` it dates the last arrival from a single snapshot — the
+    /// frame counters are monotonic totals and cannot tell frozen from quiet in one look.
+    pub last_frame_in_at_ms: Option<u64>,
 }
 
 impl InterfaceVitals {
@@ -92,6 +104,7 @@ impl InterfaceVitals {
             transfer_rates: status.transfer_rates(),
             frames: status.frame_accounting(),
             uptime_ms: None,
+            last_frame_in_at_ms: status.last_frame_in_at_ms(),
         }
     }
 }
@@ -179,5 +192,9 @@ impl<T: InterfaceStatus + ?Sized> InterfaceStatus for &T {
 
     fn frame_accounting(&self) -> Option<FrameAccounting> {
         (**self).frame_accounting()
+    }
+
+    fn last_frame_in_at_ms(&self) -> Option<u64> {
+        (**self).last_frame_in_at_ms()
     }
 }
