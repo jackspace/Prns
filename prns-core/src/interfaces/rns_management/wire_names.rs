@@ -27,6 +27,7 @@ pub mod vitals {
     pub const TRANSFER_RATES: &str = "rates";
     pub const FRAMES: &str = "frames";
     pub const UPTIME_MS: &str = "uptime_ms";
+    pub const LAST_FRAME_IN_AT_MS: &str = "last_frame_in_at_ms";
 }
 
 pub mod interface {

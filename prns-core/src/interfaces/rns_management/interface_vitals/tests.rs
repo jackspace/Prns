@@ -31,6 +31,7 @@ fn accounted(seed: u8) -> RnsInterfaceVitalsEntry {
                 delivered: 74,
             }),
             uptime_ms: Some(1_234_567),
+            last_frame_in_at_ms: Some(1_230_002),
         },
     }
 }
@@ -47,6 +48,7 @@ fn unaccounted(seed: u8) -> RnsInterfaceVitalsEntry {
             transfer_rates: None,
             frames: None,
             uptime_ms: None,
+            last_frame_in_at_ms: None,
         },
     }
 }
@@ -119,6 +121,21 @@ fn uptime_survives_and_stays_optional() {
     assert_eq!(decoded.entries()[0].vitals.uptime_ms, None);
 }
 
+/// The stamp dates the newest arrival the way `uptime_ms` dates the sample, and its nil is
+/// just as load-bearing: "no frame since boot" must not collapse into a stamp of zero.
+#[test]
+fn the_inbound_stamp_survives_and_stays_optional() {
+    let mut entry = accounted(0x45);
+    entry.vitals.last_frame_in_at_ms = Some(0);
+    let decoded = round_trip(&RnsInterfaceVitalsReport::new(vec![entry]));
+    assert_eq!(decoded.entries()[0].vitals.last_frame_in_at_ms, Some(0));
+
+    let mut entry = accounted(0x45);
+    entry.vitals.last_frame_in_at_ms = None;
+    let decoded = round_trip(&RnsInterfaceVitalsReport::new(vec![entry]));
+    assert_eq!(decoded.entries()[0].vitals.last_frame_in_at_ms, None);
+}
+
 #[test]
 fn a_reported_failure_reason_arrives_as_a_flag() {
     let mut entry = accounted(0x55);
@@ -126,14 +143,21 @@ fn a_reported_failure_reason_arrives_as_a_flag() {
     entry.vitals.failure_reason = Some("module wedged");
     let decoded = round_trip(&RnsInterfaceVitalsReport::new(vec![entry]));
 
-    assert_eq!(decoded.entries()[0].vitals.connection, ConnectionState::Failed);
-    assert_eq!(decoded.entries()[0].vitals.failure_reason, Some(RELAYED_FAILURE));
+    assert_eq!(
+        decoded.entries()[0].vitals.connection,
+        ConnectionState::Failed
+    );
+    assert_eq!(
+        decoded.entries()[0].vitals.failure_reason,
+        Some(RELAYED_FAILURE)
+    );
 }
 
 #[test]
 fn an_unnamed_interface_falls_back_to_its_generated_name() {
     let vitals = unaccounted(0x66).vitals;
-    let report = RnsInterfaceVitalsReport::of(vec![(None, vitals), (Some(String::from("named")), vitals)]);
+    let report =
+        RnsInterfaceVitalsReport::of(vec![(None, vitals), (Some(String::from("named")), vitals)]);
 
     assert_eq!(report.entries()[0].name, interface_name(vitals.id));
     assert_eq!(report.entries()[1].name, "named");

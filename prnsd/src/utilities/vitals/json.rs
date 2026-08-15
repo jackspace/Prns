@@ -70,6 +70,16 @@ fn entry_value(entry: &RnsInterfaceVitalsEntry) -> Value {
             None => Value::Null,
         },
     );
+    // Same clock as uptime_ms, stamped when the interface last accepted an inbound frame.
+    // uptime_ms - last_frame_in_at_ms is the age of the newest arrival from this one sample,
+    // which is the number the frame counters alone can never give.
+    fields.insert(
+        String::from("last_frame_in_at_ms"),
+        match vitals.last_frame_in_at_ms {
+            Some(at_ms) => at_ms.into(),
+            None => Value::Null,
+        },
+    );
     Value::Object(fields)
 }
 

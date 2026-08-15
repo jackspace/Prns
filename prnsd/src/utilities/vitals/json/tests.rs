@@ -26,6 +26,7 @@ fn relayed_remote_row() -> InterfaceVitals {
             delivered: 103,
         }),
         uptime_ms: Some(5_820_000),
+        last_frame_in_at_ms: Some(5_814_500),
     }
 }
 
@@ -39,6 +40,7 @@ fn local_row() -> InterfaceVitals {
         transfer_rates: None,
         frames: None,
         uptime_ms: None,
+        last_frame_in_at_ms: None,
     }
 }
 
@@ -71,6 +73,7 @@ fn a_stored_remote_report_survives_the_wire_and_reaches_the_json() {
     assert_eq!(row["frames"]["undecodable"], 5);
     assert_eq!(row["frames"]["delivered"], 103);
     assert_eq!(row["uptime_ms"], 5_820_000u64);
+    assert_eq!(row["last_frame_in_at_ms"], 5_814_500u64);
 }
 
 /// The question the command was built for: a reader must be able to tell an interface that
@@ -94,18 +97,17 @@ fn an_unaccounted_interface_renders_null_frames_not_zeroes() {
     assert_eq!(rendered["interfaces"][0]["frames"]["frames_in"], 0);
     assert!(rendered["interfaces"][1]["frames"].is_null());
     assert!(rendered["interfaces"][1]["uptime_ms"].is_null());
+    assert!(rendered["interfaces"][1]["last_frame_in_at_ms"].is_null());
     assert!(rendered["interfaces"][1]["rx_bps"].is_null());
 }
 
 /// One object per line is what makes the output appendable to a JSONL timeline.
 #[test]
 fn the_render_is_a_single_line_object() {
-    let encoded = RnsInterfaceVitalsReport::of(std::vec![
-        (None, relayed_remote_row()),
-        (None, local_row()),
-    ])
-    .encode_message_pack()
-    .expect("encodes");
+    let encoded =
+        RnsInterfaceVitalsReport::of(std::vec![(None, relayed_remote_row()), (None, local_row()),])
+            .encode_message_pack()
+            .expect("encodes");
     let decoded = RnsInterfaceVitalsReport::decode_message_pack(&encoded).expect("decodes");
     let rendered = render(&decoded).expect("renders");
 

@@ -58,6 +58,7 @@ fn radio() -> InterfaceVitals {
             delivered: 103,
         }),
         uptime_ms: Some(5_820_000),
+        last_frame_in_at_ms: Some(5_814_500),
     }
 }
 
@@ -102,6 +103,7 @@ async fn the_verb_returns_the_frame_split_and_uptime_that_interface_stats_drops(
     assert_eq!(entry.name, "halow0");
     assert_eq!(entry.vitals.frames, radio().frames);
     assert_eq!(entry.vitals.uptime_ms, Some(5_820_000));
+    assert_eq!(entry.vitals.last_frame_in_at_ms, Some(5_814_500));
     assert_eq!(entry.vitals.rx_bytes, 9_001);
 }
 
