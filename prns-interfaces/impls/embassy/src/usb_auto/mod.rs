@@ -227,6 +227,10 @@ where
         // the fire-time guard requires a linked lifecycle, and the host's re-Hello re-arms.
         let mut vitals_at: Option<Instant> = None;
 
+        // The USB lane accounts its own frames: byte counters cannot separate a delivered
+        // packet from framing noise, and the inbound stamp below is what lets one vitals
+        // sample date the newest arrival on this hop.
+        status.account_frames();
         lifecycle.publish(status);
 
         loop {
@@ -362,6 +366,7 @@ where
                                     }
                                     InboundReaction::Deliver(packet) => {
                                         if lifecycle.is_linked() && !packet.is_empty() {
+                                            status.count_frame_in(Instant::now().as_millis());
                                             seam.next_inbound(packet).await;
                                         }
                                     }
