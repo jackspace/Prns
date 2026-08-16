@@ -712,10 +712,6 @@ async fn send_face_page(socket: &mut TcpSocket<'static>, head_only: bool) -> Res
             content_type: "text/html; charset=utf-8",
             body: FACE_PAGE_HTML,
             head_only,
-            content_encoding: None,
-            vary_accept_encoding: false,
-            cache_control: "no-cache",
-            content_disposition: None,
         },
     )
     .await
