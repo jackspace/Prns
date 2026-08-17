@@ -437,7 +437,11 @@ async fn serve_site_connection<'a>(
     request_buffer: &'a mut [u8],
 ) -> Result<HttpResponseAttempt<'a>, ()> {
     let len = read_http_request(socket, request_buffer).await?;
-    let request = core::str::from_utf8(&request_buffer[..len]).map_err(|_| ())?;
+    // Parse from the received head and hand the disjoint tail to the face-button
+    // body read: method/path escape into the return value at 'a, which pins the
+    // parsed half immutably for the whole call.
+    let (head, tail) = request_buffer.split_at_mut(len);
+    let request = core::str::from_utf8(&head[..]).map_err(|_| ())?;
     let Some(line) = request.lines().next() else {
         return Err(());
     };
@@ -455,11 +459,11 @@ async fn serve_site_connection<'a>(
                 written: response.is_ok(),
             });
         }
-        let body_byte = read_face_button_body(socket, request_buffer, len).await;
+        let body_byte = read_face_button_body(socket, &head[..], tail).await;
         let response = send_face_button_response(socket, body_byte).await;
         return Ok(HttpResponseAttempt {
-            method: "POST",
-            path: "/face/button",
+            method,
+            path: raw_path,
             written: response.is_ok(),
         });
     }
@@ -632,23 +636,18 @@ const FACE_BUTTON_BODY_TIMEOUT: Duration = Duration::from_millis(750);
 #[cfg(feature = "wifi-auto")]
 async fn read_face_button_body(
     socket: &mut TcpSocket<'static>,
-    request_buffer: &mut [u8],
-    request_len: usize,
+    head: &[u8],
+    tail: &mut [u8],
 ) -> Option<u8> {
-    let body_start = http_body_start(&request_buffer[..request_len])?;
-    if body_start < request_len {
-        return Some(request_buffer[body_start]);
+    let body_start = http_body_start(head)?;
+    if body_start < head.len() {
+        return Some(head[body_start]);
     }
-    if body_start >= request_buffer.len() {
+    if tail.is_empty() {
         return None;
     }
-    match with_timeout(
-        FACE_BUTTON_BODY_TIMEOUT,
-        socket.read(&mut request_buffer[body_start..]),
-    )
-    .await
-    {
-        Ok(Ok(read)) if read > 0 => Some(request_buffer[body_start]),
+    match with_timeout(FACE_BUTTON_BODY_TIMEOUT, socket.read(tail)).await {
+        Ok(Ok(read)) if read > 0 => Some(tail[0]),
         _ => None,
     }
 }
