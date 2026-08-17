@@ -103,25 +103,40 @@ impl DrawTarget for FaceFrame {
 /// The cross-task home of the latest composed frame: the render loop (core 0
 /// main task) publishes, the captive-portal HTTP tasks snapshot. A blocking
 /// critical-section mutex held only for the 1 KiB copy.
+///
+/// The buffer itself lives in PSRAM, installed by `run_core` before the render
+/// loop starts: internal DRAM runs within ~2 KiB of the ProCpu stack guard
+/// during Wi-Fi bring-up, and a 1 KiB `.bss` static was enough to breach it.
 pub(super) struct SharedFaceFrame {
-    frame: BlockingMutex<Mtx, RefCell<[u8; FACE_FRAME_BYTES]>>,
+    frame: BlockingMutex<Mtx, RefCell<Option<&'static mut [u8; FACE_FRAME_BYTES]>>>,
 }
 
 impl SharedFaceFrame {
     pub(super) const fn new() -> Self {
         Self {
-            frame: BlockingMutex::new(RefCell::new([0; FACE_FRAME_BYTES])),
+            frame: BlockingMutex::new(RefCell::new(None)),
         }
     }
 
+    pub(super) fn install(&self, buffer: &'static mut [u8; FACE_FRAME_BYTES]) {
+        self.frame.lock(|cell| *cell.borrow_mut() = Some(buffer));
+    }
+
     pub(super) fn publish(&self, frame: &FaceFrame) {
-        self.frame
-            .lock(|cell| cell.borrow_mut().copy_from_slice(&frame.bytes));
+        self.frame.lock(|cell| {
+            if let Some(buffer) = cell.borrow_mut().as_mut() {
+                buffer.copy_from_slice(&frame.bytes);
+            }
+        });
     }
 
     #[cfg(feature = "wifi-auto")]
     pub(super) fn snapshot(&self, out: &mut [u8; FACE_FRAME_BYTES]) {
-        self.frame.lock(|cell| out.copy_from_slice(&*cell.borrow()));
+        self.frame.lock(|cell| match cell.borrow().as_ref() {
+            Some(buffer) => out.copy_from_slice(*buffer),
+            // No frame composed yet: an all-dark panel, not garbage.
+            None => out.fill(0),
+        });
     }
 }
 

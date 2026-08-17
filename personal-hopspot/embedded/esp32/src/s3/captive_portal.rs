@@ -721,14 +721,21 @@ async fn send_face_page(socket: &mut TcpSocket<'static>, head_only: bool) -> Res
 /// top-left, most significant bit leftmost.
 #[cfg(feature = "wifi-auto")]
 async fn send_face_frame(socket: &mut TcpSocket<'static>, head_only: bool) -> Result<(), ()> {
-    let mut frame = [0u8; face::FACE_FRAME_BYTES];
+    // In PSRAM per call, not a local: a 1 KiB local here lives inside each
+    // HTTP worker's statically allocated future (x HTTP_SERVER_WORKERS of
+    // internal DRAM), and that margin is what the ProCpu stack guard needs
+    // for Wi-Fi bring-up.
+    let mut frame = allocator_api2::boxed::Box::new_in(
+        [0u8; face::FACE_FRAME_BYTES],
+        esp_alloc::ExternalMemory,
+    );
     FACE_FRAME.snapshot(&mut frame);
     send_site_response(
         socket,
         SiteResponse {
             status: "200 OK",
             content_type: "application/octet-stream",
-            body: &frame,
+            body: &*frame,
             head_only,
         },
     )

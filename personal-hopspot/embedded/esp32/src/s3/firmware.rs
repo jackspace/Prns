@@ -447,6 +447,14 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         );
         let mut render_tick = Ticker::every(RENDER_INTERVAL);
         let mut face_frame = face::FaceFrame::new();
+        // The publish buffer goes to PSRAM, not a `.bss` static: internal DRAM
+        // ends within ~2 KiB of the ProCpu stack guard here.
+        FACE_FRAME.install(allocator_api2::boxed::Box::leak(
+            allocator_api2::boxed::Box::new_in(
+                [0u8; face::FACE_FRAME_BYTES],
+                esp_alloc::ExternalMemory,
+            ),
+        ));
         let mut settle_after_draw = false;
         let mut persistence_notice = screen::PersistenceNotice::new();
         let mut first_render_pending = true;
