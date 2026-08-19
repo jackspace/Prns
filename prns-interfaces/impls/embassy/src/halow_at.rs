@@ -66,13 +66,41 @@ const TX_STEP_TIMEOUT: Duration = Duration::from_secs(1);
 /// How long the RF receive path may stay silent before the driver concludes the module has
 /// wedged and routes through the reset machinery. The wedge this catches was proven on the
 /// bench: RF reception dies while the AT console keeps answering, so no command-level probe can
-/// see it — only the absence of air frames can. Any [`AtStep::RxFrame`] rearms the deadline,
-/// own echoes included, because each one proves the receive path end to end. A healthy fleet
-/// announcing every 60 s never comes near this; a genuinely lone node resets its idle module
-/// every five minutes at a cost of ~2 s and no identity, which is the right trade against a
-/// wedge that otherwise persists forever behind green health signals.
+/// see it, only the absence of air frames can.
+///
+/// Only [`Rx::Peer`] rearms the deadline. The first cut rearmed on any [`AtStep::RxFrame`],
+/// own echoes included, reasoning that each one proves the receive path end to end. On this
+/// module it does not: a wedged module still loops its own transmissions back, so a board that
+/// had gone deaf to every peer held its own deadline open forever and the fault could not fire
+/// on the one board that needed it. Measured 2026-08-19 on the bench pair: `frames_in` frozen
+/// at 13,219 while `frames_out` climbed, across 5.95 days of uptime with no reset. An echo
+/// proves the receiver is powered. It does not prove anyone is still out there.
+///
+/// A healthy fleet announcing every 60 s never comes near this. A node with no reachable peer
+/// now resets its module every five minutes at a cost of ~2 s and no identity, whether it is
+/// idle or shouting, which is the same trade this constant was always making and is the case
+/// the reset exists for.
 // Deployment-tuned: sized against the bench fleet's 60 s announce cadence.
 const RX_SILENCE_RESET: Duration = Duration::from_secs(300);
+
+/// What an arriving air frame proved. The silence deadline is asking one question, "can this
+/// module still hear anybody", and only one of these answers it.
+// `must_use` because the whole defect was a caller throwing this answer away: the deadline was
+// rearmed before anybody asked who the frame came from.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rx {
+    /// A frame whose source address is somebody else. The only evidence that the receive path
+    /// still reaches the air rather than just the module's own transmitter.
+    Peer,
+    /// Our own transmission, looped back by the module. Costs nothing and proves nothing, and
+    /// it is what a wedged module goes on producing after it has stopped hearing peers.
+    OwnEcho,
+    /// A burst whose header did not survive, so it cannot be attributed to anyone. Counted as
+    /// malformed, and deliberately not treated as evidence of a peer: the whole failure this
+    /// deadline exists for was ambiguous arrivals being read as proof of life.
+    Unattributable,
+}
 
 const ENCODE_CAP: usize = rns_serial_framing::max_encoded_len(HALOW_AT_MAX_WIRE_FRAME_LEN);
 
@@ -255,8 +283,7 @@ impl<R: Read, W: Write> Interface for HalowAtInterface<'_, R, W> {
                                     }
                                 }
                                 AtStep::RxFrame => {
-                                    rx_heard_at = Instant::now();
-                                    deliver(
+                                    deliver_and_rearm(
                                         console.rx_frame(),
                                         own_mac,
                                         &mut peers,
@@ -264,6 +291,7 @@ impl<R: Read, W: Write> Interface for HalowAtInterface<'_, R, W> {
                                         status,
                                         &mut throughput,
                                         started,
+                                        &mut rx_heard_at,
                                     )
                                     .await;
                                 }
@@ -297,6 +325,7 @@ impl<R: Read, W: Write> Interface for HalowAtInterface<'_, R, W> {
                             status,
                             &mut throughput,
                             started,
+                            &mut rx_heard_at,
                         )
                         .await;
                         match sent {
@@ -503,6 +532,28 @@ async fn query_config<R: Read, W: Write>(
     }
 }
 
+/// Hand an arriving frame to the seam and rearm the silence deadline if, and only if, it came
+/// from a peer. Both receive paths funnel through here on purpose. The first cut put the rearm
+/// in the steady loop alone, which got it wrong in both directions at once: it accepted our own
+/// echoes as proof of life, and it ignored genuine peer frames that arrived inside a transmit
+/// window.
+#[allow(clippy::too_many_arguments)]
+async fn deliver_and_rearm<Seam: InterfaceSeam>(
+    air_frame: &[u8],
+    own_mac: [u8; 6],
+    peers: &mut [Option<Peer>; PEER_SLOTS],
+    seam: &mut Seam,
+    status: &EmbassyInterfaceStatus,
+    throughput: &mut ThroughputLedger,
+    started: Instant,
+    rx_heard_at: &mut Instant,
+) {
+    let heard = deliver(air_frame, own_mac, peers, seam, status, throughput, started).await;
+    if heard == Rx::Peer {
+        *rx_heard_at = Instant::now();
+    }
+}
+
 /// HDLC-encode one wire frame and push it across the module in `AT+TXDATA` chunks: command →
 /// OK prompt → header + chunk bytes → OK verdict. Deliveries that interleave with the waits are
 /// handed to the seam as usual. Any ERROR, timeout, or surprise reboot aborts the whole frame —
@@ -521,6 +572,7 @@ async fn transmit<R: Read, W: Write, Seam: InterfaceSeam>(
     status: &EmbassyInterfaceStatus,
     throughput: &mut ThroughputLedger,
     started: Instant,
+    rx_heard_at: &mut Instant,
 ) -> Result<(), Fault> {
     let Ok(encoded_len) = rns_serial_framing::encode(frame, encoded) else {
         // A frame past the seam's own cap cannot exist; treat as sent-nothing, not module fault.
@@ -532,13 +584,29 @@ async fn transmit<R: Read, W: Write, Seam: InterfaceSeam>(
         let _ = write!(cmd, "AT+TXDATA={air_len}\r\n");
         send(uart_tx, cmd.as_bytes()).await?;
         await_tx_ok(
-            uart_rx, console, own_mac, peers, seam, status, throughput, started,
+            uart_rx,
+            console,
+            own_mac,
+            peers,
+            seam,
+            status,
+            throughput,
+            started,
+            rx_heard_at,
         )
         .await?;
         send(uart_tx, header).await?;
         send(uart_tx, chunk).await?;
         await_tx_ok(
-            uart_rx, console, own_mac, peers, seam, status, throughput, started,
+            uart_rx,
+            console,
+            own_mac,
+            peers,
+            seam,
+            status,
+            throughput,
+            started,
+            rx_heard_at,
         )
         .await?;
         let now = InstantMillis(started.elapsed().as_millis());
@@ -563,6 +631,7 @@ async fn await_tx_ok<R: Read, Seam: InterfaceSeam>(
     status: &EmbassyInterfaceStatus,
     throughput: &mut ThroughputLedger,
     started: Instant,
+    rx_heard_at: &mut Instant,
 ) -> Result<(), Fault> {
     let deadline = Instant::now() + TX_STEP_TIMEOUT;
     let mut rx_buf = [0u8; 64];
@@ -587,7 +656,7 @@ async fn await_tx_ok<R: Read, Seam: InterfaceSeam>(
                             }
                         }
                         AtStep::RxFrame => {
-                            deliver(
+                            deliver_and_rearm(
                                 console.rx_frame(),
                                 own_mac,
                                 peers,
@@ -595,6 +664,7 @@ async fn await_tx_ok<R: Read, Seam: InterfaceSeam>(
                                 status,
                                 throughput,
                                 started,
+                                rx_heard_at,
                             )
                             .await;
                         }
@@ -616,15 +686,15 @@ async fn deliver<Seam: InterfaceSeam>(
     status: &EmbassyInterfaceStatus,
     throughput: &mut ThroughputLedger,
     started: Instant,
-) {
+) -> Rx {
     let Some((src, payload)) = split_rx_frame(air_frame) else {
         // Counted, not logged: a burst that lost its header is exactly the arrival that used to
         // leave no trace at all, and the console is the one thing a soak cannot spare.
         status.count_frame_malformed();
-        return;
+        return Rx::Unattributable;
     };
     if src == own_mac {
-        return;
+        return Rx::OwnEcho;
     }
     let now = InstantMillis(started.elapsed().as_millis());
     status.count_frame_in();
@@ -668,6 +738,7 @@ async fn deliver<Seam: InterfaceSeam>(
             Err(_) => status.count_frame_undecodable(),
         }
     }
+    Rx::Peer
 }
 
 fn select_peer_slot(peers: &[Option<Peer>; PEER_SLOTS], src: [u8; 6]) -> usize {
@@ -784,7 +855,7 @@ mod tests {
             }
         }
 
-        fn feed(&mut self, air_frame: &[u8]) {
+        fn feed(&mut self, air_frame: &[u8]) -> Rx {
             block_on(deliver(
                 air_frame,
                 OWN,
@@ -793,7 +864,7 @@ mod tests {
                 &self.status,
                 &mut self.throughput,
                 self.started,
-            ));
+            ))
         }
 
         fn accounting(&self) -> FrameAccounting {
@@ -826,7 +897,7 @@ mod tests {
     fn a_headerless_burst_counts_as_malformed_not_as_an_arrival() {
         let mut harness = Harness::new();
         // One byte short of a delivery header: firmware noise, and previously a silent `return`.
-        harness.feed(&[0u8; HALOW_AT_HEADER_LEN - 1]);
+        let _ = harness.feed(&[0u8; HALOW_AT_HEADER_LEN - 1]);
 
         let counts = harness.accounting();
         assert_eq!(counts.malformed, 1);
@@ -840,7 +911,7 @@ mod tests {
         let mut harness = Harness::new();
         let mut encoded = [0u8; 64];
         let written = encode(b"hello", &mut encoded).unwrap();
-        harness.feed(&air_frame(&encoded[..written]));
+        let _ = harness.feed(&air_frame(&encoded[..written]));
 
         let counts = harness.accounting();
         assert_eq!(counts.frames_in, 1);
@@ -855,9 +926,43 @@ mod tests {
         let mut frame = HeaplessVec::<u8, 512>::new();
         frame.extend_from_slice(&broadcast_header(OWN)).unwrap();
         frame.extend_from_slice(b"echo").unwrap();
-        harness.feed(&frame);
+        let _ = harness.feed(&frame);
 
         assert_eq!(harness.accounting(), FrameAccounting::default());
+    }
+
+    #[test]
+    fn only_a_peer_frame_is_evidence_that_this_module_can_still_hear() {
+        // The regression this guards: the silence deadline used to rearm on any arriving
+        // frame, so a module that had gone deaf to every peer kept resetting its own
+        // deadline with its own echoes and the wedge fault could never fire. Measured on the
+        // bench 2026-08-19 as frames_in frozen at 13,219 while frames_out climbed, over 5.95
+        // days without a reset. Each arm below is one answer to "can this module still hear
+        // anybody", and only the first one is yes.
+        let mut harness = Harness::new();
+
+        let mut echo = HeaplessVec::<u8, 512>::new();
+        echo.extend_from_slice(&broadcast_header(OWN)).unwrap();
+        echo.extend_from_slice(b"echo").unwrap();
+
+        let mut encoded = [0u8; 64];
+        let written = encode(b"hello", &mut encoded).unwrap();
+
+        assert_eq!(
+            harness.feed(&air_frame(&encoded[..written])),
+            Rx::Peer,
+            "a frame from another node is the one thing that rearms the deadline"
+        );
+        assert_eq!(
+            harness.feed(&echo),
+            Rx::OwnEcho,
+            "our own transmission proves the receiver is powered, not that anyone answered"
+        );
+        assert_eq!(
+            harness.feed(&[0u8; HALOW_AT_HEADER_LEN - 1]),
+            Rx::Unattributable,
+            "a burst with no readable source cannot be credited to a peer"
+        );
     }
 
     #[test]
@@ -869,7 +974,7 @@ mod tests {
         let filler = [0x41u8; HALOW_AT_CHUNK_CAP];
         let mut fed = 0;
         while harness.accounting().undecodable == 0 {
-            harness.feed(&air_frame(&filler));
+            let _ = harness.feed(&air_frame(&filler));
             fed += 1;
             assert!(fed < 64, "decoder never rejected an unterminated stream");
         }
