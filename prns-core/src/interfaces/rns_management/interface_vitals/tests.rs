@@ -126,14 +126,21 @@ fn a_reported_failure_reason_arrives_as_a_flag() {
     entry.vitals.failure_reason = Some("module wedged");
     let decoded = round_trip(&RnsInterfaceVitalsReport::new(vec![entry]));
 
-    assert_eq!(decoded.entries()[0].vitals.connection, ConnectionState::Failed);
-    assert_eq!(decoded.entries()[0].vitals.failure_reason, Some(RELAYED_FAILURE));
+    assert_eq!(
+        decoded.entries()[0].vitals.connection,
+        ConnectionState::Failed
+    );
+    assert_eq!(
+        decoded.entries()[0].vitals.failure_reason,
+        Some(RELAYED_FAILURE)
+    );
 }
 
 #[test]
 fn an_unnamed_interface_falls_back_to_its_generated_name() {
     let vitals = unaccounted(0x66).vitals;
-    let report = RnsInterfaceVitalsReport::of(vec![(None, vitals), (Some(String::from("named")), vitals)]);
+    let report =
+        RnsInterfaceVitalsReport::of(vec![(None, vitals), (Some(String::from("named")), vitals)]);
 
     assert_eq!(report.entries()[0].name, interface_name(vitals.id));
     assert_eq!(report.entries()[1].name, "named");

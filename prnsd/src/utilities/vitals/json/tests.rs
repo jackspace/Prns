@@ -100,12 +100,10 @@ fn an_unaccounted_interface_renders_null_frames_not_zeroes() {
 /// One object per line is what makes the output appendable to a JSONL timeline.
 #[test]
 fn the_render_is_a_single_line_object() {
-    let encoded = RnsInterfaceVitalsReport::of(std::vec![
-        (None, relayed_remote_row()),
-        (None, local_row()),
-    ])
-    .encode_message_pack()
-    .expect("encodes");
+    let encoded =
+        RnsInterfaceVitalsReport::of(std::vec![(None, relayed_remote_row()), (None, local_row()),])
+            .encode_message_pack()
+            .expect("encodes");
     let decoded = RnsInterfaceVitalsReport::decode_message_pack(&encoded).expect("decodes");
     let rendered = render(&decoded).expect("renders");
 

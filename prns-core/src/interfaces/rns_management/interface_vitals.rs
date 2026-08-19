@@ -4,8 +4,7 @@ use alloc::vec::Vec;
 use rmp::Marker;
 
 use crate::interfaces::{
-    ConnectionState, FrameAccounting, InterfaceId, InterfaceVitals, TransferRates,
-    INTERFACE_ID_LEN,
+    ConnectionState, FrameAccounting, InterfaceId, InterfaceVitals, TransferRates, INTERFACE_ID_LEN,
 };
 
 use super::message_pack::{MessagePackEncoder, MessagePackInteger, MessagePackReader};
@@ -208,20 +207,23 @@ fn decode_entry(
     let failure_reason = expect_key_then_optional_string(reader, index, vitals::FAILURE_REASON)?;
     let rx_bytes = expect_key_then_unsigned(reader, index, interface::RECEIVE_BYTES)?;
     let tx_bytes = expect_key_then_unsigned(reader, index, interface::TRANSMIT_BYTES)?;
-    let transfer_rates = expect_key_then_optional_array::<2>(reader, index, vitals::TRANSFER_RATES)?
-        .map(|values| TransferRates {
-            rx_bps: u32::try_from(values[0]).unwrap_or(u32::MAX),
-            tx_bps: u32::try_from(values[1]).unwrap_or(u32::MAX),
+    let transfer_rates =
+        expect_key_then_optional_array::<2>(reader, index, vitals::TRANSFER_RATES)?.map(|values| {
+            TransferRates {
+                rx_bps: u32::try_from(values[0]).unwrap_or(u32::MAX),
+                tx_bps: u32::try_from(values[1]).unwrap_or(u32::MAX),
+            }
         });
-    let frames = expect_key_then_optional_array::<5>(reader, index, vitals::FRAMES)?.map(|values| {
-        FrameAccounting {
-            frames_in: values[0],
-            frames_out: values[1],
-            malformed: values[2],
-            undecodable: values[3],
-            delivered: values[4],
-        }
-    });
+    let frames =
+        expect_key_then_optional_array::<5>(reader, index, vitals::FRAMES)?.map(|values| {
+            FrameAccounting {
+                frames_in: values[0],
+                frames_out: values[1],
+                malformed: values[2],
+                undecodable: values[3],
+                delivered: values[4],
+            }
+        });
     let uptime_ms = expect_key_then_optional_unsigned(reader, index, vitals::UPTIME_MS)?;
 
     Ok(RnsInterfaceVitalsEntry {
