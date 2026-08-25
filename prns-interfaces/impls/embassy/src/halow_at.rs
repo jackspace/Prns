@@ -987,4 +987,103 @@ mod tests {
         // cannot tell this apart from a healthy link.
         assert!(harness.status.rx_bytes() > 0);
     }
+
+    /// Stands in for a deadline armed long ago. Any rearm sets `rx_heard_at` to
+    /// [`Instant::now`], which is unmistakably later than the epoch, so these assertions
+    /// answer "did it move" without racing the clock for a tick.
+    const ARMED_LONG_AGO: Instant = Instant::from_ticks(0);
+
+    impl Harness {
+        /// The whole seam under test: [`deliver_and_rearm`] is the caller that reads the
+        /// [`Rx`] verdict and decides whether the deadline moves. [`deliver`] classifying
+        /// correctly is not enough on its own, and the classification being right while this
+        /// caller ignored it is exactly the shape the bench failure took.
+        fn feed_and_rearm(&mut self, air_frame: &[u8], rx_heard_at: &mut Instant) {
+            block_on(deliver_and_rearm(
+                air_frame,
+                OWN,
+                &mut self.peers,
+                &mut self.seam,
+                &self.status,
+                &mut self.throughput,
+                self.started,
+                rx_heard_at,
+            ));
+        }
+    }
+
+    fn own_echo() -> HeaplessVec<u8, 512> {
+        let mut frame = HeaplessVec::new();
+        frame.extend_from_slice(&broadcast_header(OWN)).unwrap();
+        frame.extend_from_slice(b"echo").unwrap();
+        frame
+    }
+
+    fn peer_frame() -> HeaplessVec<u8, 512> {
+        let mut encoded = [0u8; 64];
+        let written = encode(b"hello", &mut encoded).unwrap();
+        air_frame(&encoded[..written])
+    }
+
+    #[test]
+    fn a_peer_frame_rearms_the_silence_deadline() {
+        let mut harness = Harness::new();
+        let mut rx_heard_at = ARMED_LONG_AGO;
+
+        harness.feed_and_rearm(&peer_frame(), &mut rx_heard_at);
+
+        assert!(
+            rx_heard_at > ARMED_LONG_AGO,
+            "a frame from another node is the one arrival that pushes the deadline out"
+        );
+    }
+
+    #[test]
+    fn neither_an_echo_nor_an_unattributable_burst_rearms_the_silence_deadline() {
+        let mut harness = Harness::new();
+        let mut rx_heard_at = ARMED_LONG_AGO;
+
+        harness.feed_and_rearm(&own_echo(), &mut rx_heard_at);
+        assert_eq!(
+            rx_heard_at, ARMED_LONG_AGO,
+            "our own transmission proves the receiver is powered, not that anyone answered"
+        );
+
+        harness.feed_and_rearm(&[0u8; HALOW_AT_HEADER_LEN - 1], &mut rx_heard_at);
+        assert_eq!(
+            rx_heard_at, ARMED_LONG_AGO,
+            "a burst with no readable source cannot be credited to a peer"
+        );
+    }
+
+    #[test]
+    fn a_module_deaf_to_peers_still_reaches_its_deadline_however_loudly_it_echoes() {
+        // The bench failure in miniature, and the reason this file's constant carries a date.
+        // hertz stayed deaf to every peer for 33 hours while its own transmissions kept
+        // looping back. Under the first cut each of those echoes rearmed the deadline, so a
+        // fault that should have fired roughly 400 times never fired once. The steady loop
+        // waits on `rx_heard_at + RX_SILENCE_RESET`, so an unmoved `rx_heard_at` IS the timer
+        // expiring: holding that instant still across a flood of echoes is the whole fix.
+        let mut harness = Harness::new();
+        let echo = own_echo();
+
+        let mut rx_heard_at = ARMED_LONG_AGO;
+        let deadline = rx_heard_at + RX_SILENCE_RESET;
+        for _ in 0..1_000 {
+            harness.feed_and_rearm(&echo, &mut rx_heard_at);
+        }
+        assert_eq!(
+            rx_heard_at + RX_SILENCE_RESET,
+            deadline,
+            "a thousand echoes must not buy the module one tick of extra grace"
+        );
+
+        // The control, so a deadline that never moves for any reason cannot pass this test:
+        // one peer frame pushes the very same deadline out.
+        harness.feed_and_rearm(&peer_frame(), &mut rx_heard_at);
+        assert!(
+            rx_heard_at + RX_SILENCE_RESET > deadline,
+            "the deadline has to be movable, or holding it still proves nothing"
+        );
+    }
 }
