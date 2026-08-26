@@ -310,6 +310,12 @@ jobs:
       - name: prns-interfaces-embassy — cross-build (nRF52840 / thumbv7em)
         run: cargo build --locked --target thumbv7em-none-eabihf --features "lora,bluetooth-auto,usb"
         working-directory: prns-interfaces/impls/embassy
+      - name: prns-runtime-embassy — runtime-metrics (ESP32-C6 / riscv32imac)
+        run: cargo build --locked --target riscv32imac-unknown-none-elf --no-default-features --features runtime-metrics
+        working-directory: prns-runtime/impls/embassy
+      - name: prns-runtime-embassy — runtime-metrics (nRF52840 / thumbv7em)
+        run: cargo build --locked --target thumbv7em-none-eabihf --no-default-features --features runtime-metrics
+        working-directory: prns-runtime/impls/embassy
       - name: t-echo firmware — cross-build both S140 foundations (nRF52840 / thumbv7em)
         run: |
           cargo build --release --locked --no-default-features \
