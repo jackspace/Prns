@@ -1,4 +1,6 @@
 use crate::engine::test_support::{bytes_from_hex, routable_descriptor, RNS_1_4_2_ANNOUNCE};
+#[cfg(feature = "runtime-metrics")]
+use crate::engine::AnnounceOrigin;
 use crate::engine::{Directive, EngineReaction, FanTarget, InstantMillis};
 use crate::interfaces::{
     AnnounceBandwidthCap, BitrateBps, InterfaceDescriptor, InterfaceId, InterfaceIfac,
@@ -118,6 +120,8 @@ fn a_pacer_retains_back_to_back_announces_for_a_one_slot_direct_lane() {
                 target: id,
                 bytes,
                 hops: 0,
+                #[cfg(feature = "runtime-metrics")]
+                origin: AnnounceOrigin::Local,
             }),
             &mut egress,
             &[],
@@ -163,6 +167,8 @@ fn a_full_direct_lane_defers_on_the_embedded_retry_clock_then_recovers() {
             target: id,
             bytes: b"retained",
             hops: 1,
+            #[cfg(feature = "runtime-metrics")]
+            origin: AnnounceOrigin::Local,
         }),
         &mut egress,
         &[],
@@ -214,6 +220,8 @@ fn a_pacer_retains_back_to_back_announces_for_a_one_slot_fleet_lane() {
                 fan: FanTarget::All,
                 bytes,
                 hops: 0,
+                #[cfg(feature = "runtime-metrics")]
+                origin: AnnounceOrigin::Local,
             }),
             &mut egress,
             &[],
@@ -271,6 +279,8 @@ fn a_full_fleet_lane_defers_then_recovers_without_losing_its_fan_target() {
             fan: FanTarget::AllExcept(peer),
             bytes: b"retained",
             hops: 1,
+            #[cfg(feature = "runtime-metrics")]
+            origin: AnnounceOrigin::Local,
         }),
         &mut egress,
         &[],
@@ -315,6 +325,8 @@ fn embedded_fixed_queue_sheds_the_worst_hops_under_lane_pressure() {
                 target: id,
                 bytes,
                 hops,
+                #[cfg(feature = "runtime-metrics")]
+                origin: AnnounceOrigin::Local,
             }),
             &mut egress,
             &[],
@@ -350,6 +362,8 @@ fn paced_oversize_ifac_rejection_and_missing_lane_are_terminal() {
             target: id,
             bytes: b"oversize",
             hops: 1,
+            #[cfg(feature = "runtime-metrics")]
+            origin: AnnounceOrigin::Local,
         }),
         &mut small_egress,
         &[],
@@ -373,6 +387,8 @@ fn paced_oversize_ifac_rejection_and_missing_lane_are_terminal() {
             target: id,
             bytes: b"x",
             hops: 1,
+            #[cfg(feature = "runtime-metrics")]
+            origin: AnnounceOrigin::Local,
         }),
         &mut ifac_egress,
         &ifacs,
@@ -389,6 +405,8 @@ fn paced_oversize_ifac_rejection_and_missing_lane_are_terminal() {
             target: id,
             bytes: b"missing",
             hops: 1,
+            #[cfg(feature = "runtime-metrics")]
+            origin: AnnounceOrigin::Local,
         }),
         &mut missing_egress,
         &[],
@@ -414,6 +432,8 @@ fn a_locally_originated_announce_does_not_wait_for_rebroadcast_cooldown() {
             target: id,
             bytes: b"forwarded",
             hops: 1,
+            #[cfg(feature = "runtime-metrics")]
+            origin: AnnounceOrigin::Local,
         }),
         &mut egress,
         &[],
@@ -426,6 +446,8 @@ fn a_locally_originated_announce_does_not_wait_for_rebroadcast_cooldown() {
             target: id,
             bytes: b"origin",
             hops: 0,
+            #[cfg(feature = "runtime-metrics")]
+            origin: AnnounceOrigin::Local,
         }),
         &mut egress,
         &[],
