@@ -338,6 +338,9 @@ pub(super) async fn run_core<B: Esp32S3Board>(
     };
 
     let handle: Handle = PrnsNodeHandle::new(COMMANDS.sender(), &COMPLETION);
+    // Cloned before the wiring takes ownership, so the identity announce does not depend on the
+    // display runtime having come up. See `identity_announce_task`.
+    let announce_handle = handle.clone();
     let manifold_wiring = manifold_lanes.into_manifold_wiring(
         NOTIFY.receiver(),
         COMMANDS.receiver(),
@@ -414,6 +417,10 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         });
 
     spawner.spawn(button_task(button).expect("button task fits"));
+    spawner.spawn(
+        identity_announce_task(announce_handle, node_page_destination)
+            .expect("identity announce task fits"),
+    );
 
     // `wifi_status` keeps the concrete `AutoWifiStatus` (the sleep and toggle paths need its
     // station controls), so every use of it is gated; only the id crosses into shared code.
@@ -1085,6 +1092,40 @@ async fn wifi_task(
     secondary_data_buf: &'static mut [u8],
 ) {
     interface.run(fleet, data_buf, secondary_data_buf).await
+}
+
+/// Long enough for the interfaces spawned after this task to finish coming up, so the first
+/// announce actually reaches a medium instead of being paced against nothing.
+const IDENTITY_ANNOUNCE_SETTLE: Duration = Duration::from_secs(20);
+
+/// Slow on purpose. This is "the node still exists", not a heartbeat, and every announce floods
+/// the mesh it is sent on. The engine's announce pacer governs the actual send, so this interval
+/// is a ceiling on intent rather than a promise about airtime.
+const IDENTITY_ANNOUNCE_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
+/// Announce this board's node destination without waiting for a human.
+///
+/// Until now the only trigger was `screen::UiAction::Announce`, which lives inside the display
+/// runtime. A board with no screen and one button therefore had no practical way to announce, so
+/// it could relay traffic all day while remaining unreachable as a destination: peers hold routes
+/// *via* it and no route *to* it, and remote management cannot open a path to it at all. Measured
+/// on the HaLow bench 2026-08-25, where both boards' own identities returned "Path not found" from
+/// nodes that were routing through them at that moment.
+///
+/// Deliberately not in the render loop. Tying node identity to the display subsystem is what
+/// created the hole; a screenless board must be able to say who it is on its own.
+#[embassy_executor::task]
+async fn identity_announce_task(handle: Handle, destination: personal_rns::wire::DestinationHash) {
+    Timer::after(IDENTITY_ANNOUNCE_SETTLE).await;
+    loop {
+        let queued = handle.issue(PrnsCommand::AnnounceNow(AnnounceNow {
+            destination,
+            target: AnnounceTarget::AllInterfaces,
+            app_data: AnnounceAppData::Registered,
+        }));
+        log::info!("identity-announce destination=node queued={}", queued.is_some());
+        Timer::after(IDENTITY_ANNOUNCE_INTERVAL).await;
+    }
 }
 
 #[embassy_executor::task]
