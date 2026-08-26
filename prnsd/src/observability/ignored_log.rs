@@ -27,11 +27,25 @@ async fn run(handle: PrnsNodeHandle) {
     let mut interval = tokio::time::interval(SAMPLE_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut previous: Option<IgnoreReasonCounts> = None;
+    let mut previous_ingested: Option<u64> = None;
     loop {
         interval.tick().await;
         let Some(snapshot) = handle.metrics_snapshot().await else {
             return;
         };
+
+        // Reported separately from the ignore reasons, and this separation is the whole point.
+        // An ignore count that stays flat has two very different causes: the engine looked at the
+        // packet and had no reason to drop it, or the packet never reached the engine at all.
+        // Only `ingested` tells those apart, and on a multi-hop link the second case is what a
+        // silent hop looks like from here.
+        let ingested = snapshot.engine.ingested_packets;
+        if previous_ingested != Some(ingested) {
+            let delta = ingested.saturating_sub(previous_ingested.unwrap_or(0));
+            tracing::info!(event = "ingested_packets", total = ingested, delta = delta);
+        }
+        previous_ingested = Some(ingested);
+
         let current = snapshot.engine.ignored_packets;
         if let Some(line) = changed_line(previous.as_ref(), &current) {
             tracing::info!(event = "ignored_packets", counts = %line);
