@@ -28,6 +28,9 @@ async fn run(handle: PrnsNodeHandle) {
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut previous: Option<IgnoreReasonCounts> = None;
     let mut previous_ingested: Option<u64> = None;
+    // (submitted, completed, verdicts_owed, backpressure_deferrals)
+    let mut previous_crypto: Option<(u64, u64, u32, u64)> = None;
+    let mut reported_pool_absent = false;
     loop {
         interval.tick().await;
         let Some(snapshot) = handle.metrics_snapshot().await else {
@@ -45,6 +48,42 @@ async fn run(handle: PrnsNodeHandle) {
             tracing::info!(event = "ingested_packets", total = ingested, delta = delta);
         }
         previous_ingested = Some(ingested);
+
+        // The deferred-crypto window is the one place a Single-destination packet can be
+        // ingested, classified as nothing, and never delivered. These counters bracket it:
+        // submitted-minus-completed growing means jobs are stuck in the pool, while matched
+        // totals alongside a missing delivery means the loss is in the resume path.
+        match snapshot.crypto {
+            Some(crypto) => {
+                let key = (
+                    crypto.submitted_jobs,
+                    crypto.completed_jobs,
+                    crypto.packet_verdicts_owed,
+                    crypto.backpressure_deferrals,
+                );
+                if previous_crypto != Some(key) {
+                    tracing::info!(
+                        event = "crypto_jobs",
+                        submitted = crypto.submitted_jobs,
+                        completed = crypto.completed_jobs,
+                        outstanding = crypto.submitted_jobs.saturating_sub(crypto.completed_jobs),
+                        queue_depth = crypto.queue_depth,
+                        max_queue_depth = crypto.maximum_queue_depth,
+                        verdicts_owed = crypto.packet_verdicts_owed,
+                        backpressure_deferrals = crypto.backpressure_deferrals,
+                    );
+                    previous_crypto = Some(key);
+                }
+            }
+            None => {
+                // Reported once. If there is no pool the driver ingests inline and there is no
+                // deferred window at all, which would falsify the whole hypothesis.
+                if !reported_pool_absent {
+                    reported_pool_absent = true;
+                    tracing::info!(event = "crypto_jobs", pool = "absent");
+                }
+            }
+        }
 
         let current = snapshot.engine.ignored_packets;
         if let Some(line) = changed_line(previous.as_ref(), &current) {
