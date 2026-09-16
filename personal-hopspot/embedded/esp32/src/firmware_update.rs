@@ -93,9 +93,9 @@ static INSTALL_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 /// Exclusive right to write the inactive slot and move the boot selection.
 ///
-/// The transport takes it before the first byte and holds it through the success reply and the
-/// reset that follows: releasing it earlier would let a second upload target the slot this
-/// firmware is executing from during the shutdown window.
+/// The transport takes it before the first byte, hands it to [`begin`], and gets it back inside
+/// [`InstalledImage`] so it spans the success reply and the reset as well. Releasing it any earlier
+/// would let a second upload start while the first image is still being activated.
 pub(crate) struct InstallGuard;
 
 impl InstallGuard {
@@ -144,6 +144,11 @@ pub(crate) fn staged_key_id() -> Option<[u8; 8]> {
 }
 
 pub(crate) struct InstalledImage {
+    /// The install guard, handed back rather than released. The boot selection now names a slot
+    /// that has never run, and the caller still has a reply to send and a reset to perform: a
+    /// second upload starting inside that window would target the slot the node is about to boot
+    /// from. Keep this value alive until the reset.
+    _guard: InstallGuard,
     pub(crate) slot: AppPartitionSubType,
     pub(crate) image_len: usize,
 }
@@ -380,6 +385,7 @@ impl FirmwareInstall {
         Ok(InstalledImage {
             slot: self.target,
             image_len: self.received,
+            _guard: self._guard,
         })
     }
 
