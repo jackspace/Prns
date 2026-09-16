@@ -34,10 +34,16 @@ heltec-v4 = "build --release -p hopspot-heltec-v4 --target xtensa-esp32s3-none-e
 heltec-v4-flash = "run --release -p hopspot-heltec-v4 --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
 heltec-v4-r8 = "build --release -p hopspot-heltec-v4-r8 --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
 heltec-v4-r8-flash = "run --release -p hopspot-heltec-v4-r8 --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
-# Bench-only: the dual-slot V4-R8. Needs partitions-hopspot-16mb-ab.csv flashed and
-# HOPSPOT_OTA_PUBKEY set at build time, or every install refuses with key-not-configured.
+# Bench-only: the dual-slot V4-R8. Needs HOPSPOT_OTA_PUBKEY set at build time, or every install
+# refuses with key-not-configured. The flash alias hands espflash the A/B table itself, because
+# the runner above passes no --partition-table and espflash then writes its own default table over
+# whatever is on the board: no ota_0, no ota_1, no otadata, and every install refused with
+# slot-missing. It erases otadata as well, since the application lands in ota_0 and a selection
+# left behind by an earlier install would otherwise boot the other slot; the health task writes
+# the erased selection back to the running slot about thirty seconds after boot. The table path is
+# relative, so run this from this directory.
 heltec-v4-r8-ota = "build --release -p hopspot-heltec-v4-r8 --features firmware-update --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
-heltec-v4-r8-ota-flash = "run --release -p hopspot-heltec-v4-r8 --features firmware-update --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
+heltec-v4-r8-ota-flash = "run --release -p hopspot-heltec-v4-r8 --features firmware-update --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc -- --partition-table partitions-hopspot-16mb-ab.csv --erase-parts otadata"
 heltec-wireless-stick-lite-v3 = "build --release -p hopspot-heltec-wireless-stick-lite-v3 --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
 tbeam-supreme = "build --release -p hopspot-t-beam-supreme --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
 tbeam-supreme-flash = "run --release -p hopspot-t-beam-supreme --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
