@@ -1163,8 +1163,9 @@ async fn watchdog_task(mut watchdog: esp_hal::rtc_cntl::Rwdt) -> ! {
 
 /// Confirm the running image once core 1 has proven it is alive, not merely that the bootloader
 /// found something to jump to. A single-slot board has nothing to confirm and says so at debug
-/// level; an erased boot selection, which is what a migration flash leaves behind, is repaired to
-/// ota_0 here rather than by guessing at install time.
+/// level. A boot selection that names a slot the node is not executing, whether from a migration
+/// flash that erased it or from a bootloader that fell back, is repaired onto the running slot
+/// here rather than left for an install to refuse.
 #[cfg(feature = "firmware-update")]
 #[embassy_executor::task]
 async fn ota_health_task(profile: &'static personal_hopspot_memory::MemoryProfile) {
@@ -1192,8 +1193,10 @@ async fn ota_health_task(profile: &'static personal_hopspot_memory::MemoryProfil
         }
         Ok(SlotHealth::AlreadyValid) => {}
         Ok(SlotHealth::MarkedValid) => log::info!("update: running image marked valid"),
-        Ok(SlotHealth::SelectionRepaired) => {
-            log::info!("update: ota selection repaired to ota_0");
+        Ok(SlotHealth::SelectionRepaired { selected, booted }) => {
+            log::warn!(
+                "update: ota selection named {selected} while running {booted}, repaired to {booted}"
+            );
         }
         Err(error) => log::warn!("update: could not mark the running image valid: {error}"),
     }

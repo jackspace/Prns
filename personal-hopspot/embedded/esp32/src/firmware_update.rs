@@ -420,13 +420,24 @@ pub(crate) enum SlotHealth {
     NoOtaSlots,
     AlreadyValid,
     MarkedValid,
-    SelectionRepaired,
+    SelectionRepaired {
+        selected: &'static str,
+        booted: &'static str,
+    },
 }
 
-/// Confirm the running image once the engine has proven itself, so a bootloader built with
-/// rollback support keeps this slot. On a rollback-less bootloader the state write is inert but
-/// harmless. An unreadable selection (an erased otadata after a migration flash) is repaired to
-/// ota_0, the slot the migration writes the application into.
+/// Confirm the image that is actually running, once the engine has proven itself, so a bootloader
+/// built with rollback support keeps this slot. On a rollback-less bootloader the state write is
+/// inert but harmless.
+///
+/// The slot otadata *selects* is not the slot the node necessarily *booted*. The bootloader falls
+/// back to the last working image when the selected one will not start, which is the case an
+/// install cannot see coming, and a wired reflash can leave a selection naming the other slot.
+/// Stamping Valid on the selection would confirm an image that has never run, erase the evidence
+/// of that fallback, and leave every later install refused with booted-slot-disagrees and nothing
+/// to repair it. So the booted slot is the one confirmed here, and a selection naming anything
+/// else is moved onto it: a bootloader fallback and an erased otadata after a migration flash are
+/// then the same repair.
 pub(crate) fn mark_running_slot_valid(
     memory: &EspFirmwareMemory,
 ) -> Result<SlotHealth, InstallError> {
@@ -449,29 +460,36 @@ pub(crate) fn mark_running_slot_valid(
         return Ok(SlotHealth::NoOtaSlots);
     };
     check_boot_selection(&ota_data, boot_selection)?;
+    // Read from the MMU, not from otadata: this is the one question otadata cannot answer.
+    let booted = booted_slot(&table).ok_or(InstallError::BootedSlotUnknown)?;
     let mut ota = Ota::new(ota_data.as_embedded_storage(&mut storage), OTA_SLOT_COUNT)
         .map_err(InstallError::Partitions)?;
     // Factory means both sequence numbers are uninitialized, which is what an erased otadata looks
-    // like after a migration flash. The application lives in ota_0, so say so.
-    match ota.current_app_partition() {
-        Ok(AppPartitionSubType::Ota0 | AppPartitionSubType::Ota1) => {
-            match ota.current_ota_state() {
-                Ok(OtaImageState::Valid) => Ok(SlotHealth::AlreadyValid),
-                Ok(_) | Err(_) => {
-                    ota.set_current_ota_state(OtaImageState::Valid)
-                        .map_err(InstallError::Partitions)?;
-                    Ok(SlotHealth::MarkedValid)
-                }
+    // like after a migration flash; an unreadable selection is no more authoritative than that.
+    let selected = ota
+        .current_app_partition()
+        .unwrap_or(AppPartitionSubType::Factory);
+    if selected == booted {
+        return match ota.current_ota_state() {
+            Ok(OtaImageState::Valid) => Ok(SlotHealth::AlreadyValid),
+            Ok(_) | Err(_) => {
+                ota.set_current_ota_state(OtaImageState::Valid)
+                    .map_err(InstallError::Partitions)?;
+                Ok(SlotHealth::MarkedValid)
             }
-        }
-        Ok(_) | Err(_) => {
-            ota.set_current_app_partition(AppPartitionSubType::Ota0)
-                .map_err(InstallError::Partitions)?;
-            ota.set_current_ota_state(OtaImageState::Valid)
-                .map_err(InstallError::Partitions)?;
-            Ok(SlotHealth::SelectionRepaired)
-        }
+        };
     }
+    // The selection names a slot this node is not executing. Point it at the slot that has just
+    // proven itself instead: `set_current_app_partition` writes the higher sequence into the other
+    // otadata entry, so the Valid stamp below lands on that same entry.
+    ota.set_current_app_partition(booted)
+        .map_err(InstallError::Partitions)?;
+    ota.set_current_ota_state(OtaImageState::Valid)
+        .map_err(InstallError::Partitions)?;
+    Ok(SlotHealth::SelectionRepaired {
+        selected: slot_name(selected),
+        booted: slot_name(booted),
+    })
 }
 
 /// What a transport reports when someone asks before uploading anything.
@@ -510,23 +528,7 @@ fn read_slot_status(
     let mut scratch = Box::new([0u8; partitions::PARTITION_TABLE_MAX_LEN]);
     let table = partitions::read_partition_table(&mut storage, &mut scratch[..])
         .map_err(InstallError::Partitions)?;
-    let booted = match table.booted_partition() {
-        Ok(Some(entry)) => {
-            let offset = entry.offset();
-            if find_raw(&table, RAW_TYPE_APP, RAW_SUBTYPE_OTA_1)
-                .is_some_and(|slot| slot.offset() == offset)
-            {
-                "ota_1"
-            } else if find_raw(&table, RAW_TYPE_APP, RAW_SUBTYPE_OTA_0)
-                .is_some_and(|slot| slot.offset() == offset)
-            {
-                "ota_0"
-            } else {
-                "unknown"
-            }
-        }
-        Ok(None) | Err(_) => "unknown",
-    };
+    let booted = booted_slot(&table).map_or("unknown", slot_name);
     let ota_data = find_raw(&table, RAW_TYPE_DATA, RAW_SUBTYPE_DATA_OTA)
         .ok_or(InstallError::BootSelectionMissing)?;
     let mut ota = Ota::new(ota_data.as_embedded_storage(&mut storage), OTA_SLOT_COUNT)
@@ -572,6 +574,22 @@ fn find_raw<'a>(
     (0..table.len())
         .filter_map(|index| table.get_partition(index).ok())
         .find(|entry| entry.raw_type() == raw_type && entry.raw_subtype() == raw_subtype)
+}
+
+/// The slot the node is executing, named by matching the booted partition's offset against this
+/// table's own ota rows. `None` when the running image is not one of them, which on an A/B board
+/// means the flashed table and the running image disagree about where firmware lives.
+fn booted_slot(table: &partitions::PartitionTable<'_>) -> Option<AppPartitionSubType> {
+    let booted = table.booted_partition().ok().flatten()?.offset();
+    [
+        (AppPartitionSubType::Ota0, RAW_SUBTYPE_OTA_0),
+        (AppPartitionSubType::Ota1, RAW_SUBTYPE_OTA_1),
+    ]
+    .into_iter()
+    .find(|(_, raw_subtype)| {
+        find_raw(table, RAW_TYPE_APP, *raw_subtype).is_some_and(|slot| slot.offset() == booted)
+    })
+    .map(|(slot, _)| slot)
 }
 
 fn check_slot(
