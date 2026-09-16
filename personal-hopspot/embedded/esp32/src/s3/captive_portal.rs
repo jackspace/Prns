@@ -6,11 +6,16 @@ const EMBASSY_INTERNAL_SOCKET_COUNT: usize = 1;
 const WIFI_AUTO_UDP_SOCKET_COUNT: usize = 3;
 const CAPTIVE_PORTAL_UDP_SOCKET_COUNT: usize = 2;
 const TCP_RENDEZVOUS_SOCKET_COUNT: usize = TCP_RENDEZVOUS_CLIENT_CAPACITY;
+/// The bench firmware install listener takes one socket on every stack it is spawned on, and only
+/// while `firmware-update` is compiled in. Shipping builds size their stacks exactly as before.
+pub(super) const FIRMWARE_UPDATE_LISTENER_SOCKET_COUNT: usize =
+    cfg!(feature = "firmware-update") as usize;
 const AP_STACK_SOCKET_CAPACITY: usize = EMBASSY_INTERNAL_SOCKET_COUNT
     + WIFI_AUTO_UDP_SOCKET_COUNT
     + CAPTIVE_PORTAL_UDP_SOCKET_COUNT
     + HTTP_SERVER_WORKERS
-    + TCP_RENDEZVOUS_SOCKET_COUNT;
+    + TCP_RENDEZVOUS_SOCKET_COUNT
+    + FIRMWARE_UPDATE_LISTENER_SOCKET_COUNT;
 const DHCP_FIRST_LEASE_HOST: u8 = 2;
 // Retain more leases than the four simultaneous associations so a departed station can be
 // replaced without immediately recycling an address that another active client still holds.

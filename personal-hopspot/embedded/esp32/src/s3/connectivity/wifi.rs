@@ -1,6 +1,6 @@
 use super::super::captive_portal::{
     build_ap_netif, dhcp_server_task, dns_server_task, http_server_task, station_wifi_mode,
-    HTTP_SERVER_WORKERS,
+    FIRMWARE_UPDATE_LISTENER_SOCKET_COUNT, HTTP_SERVER_WORKERS,
 };
 use super::super::*;
 use super::station::{net_task, network_ready_task, wifi_connect_task, StationCredentials};
@@ -63,7 +63,8 @@ const STATION_STACK_SOCKET_CAPACITY: usize = EMBASSY_DNS_RESOLVER_SOCKET_COUNT
     + DHCP_CLIENT_SOCKET_COUNT
     + WIFI_AUTO_DATAGRAM_SOCKET_COUNT
     + CONFIGURED_TCP_CLIENT_SOCKET_COUNT
-    + UDP_SERVICE_DISCOVERY_SOCKET_COUNT as usize;
+    + UDP_SERVICE_DISCOVERY_SOCKET_COUNT as usize
+    + FIRMWARE_UPDATE_LISTENER_SOCKET_COUNT;
 fn wifi_auto_station_multicast_discovery_socket(stack: Stack<'static>) -> UdpSocket<'static> {
     psram_udp_socket::<
         WIFI_AUTO_DISCOVERY_SOCKET_METADATA,
@@ -113,7 +114,7 @@ const _: () = assert!(WIFI_STATIC_RX_BUFFERS >= WIFI_RX_BA_WINDOW);
 const _: () = assert!(WIFI_DYNAMIC_RX_BUFFERS > WIFI_RX_BA_WINDOW as u16);
 const _: () = assert!(WIFI_DYNAMIC_RX_BUFFERS as usize >= WIFI_RX_QUEUE_FRAMES);
 const _: () = assert!(WIFI_DYNAMIC_TX_BUFFERS >= WIFI_TX_QUEUE_FRAMES as u16);
-const _: () = assert!(STATION_STACK_SOCKET_CAPACITY == 7);
+const _: () = assert!(STATION_STACK_SOCKET_CAPACITY == 7 + FIRMWARE_UPDATE_LISTENER_SOCKET_COUNT);
 const _: () = assert!(
     WIFI_AUTO_UNICAST_DISCOVERY_TX_SOCKET_METADATA > WIFI_AUTO_UNICAST_DISCOVERY_TX_QUEUED_PACKETS
 );
@@ -132,6 +133,8 @@ pub(in crate::s3) fn build_wifi(
     mac: [u8; 6],
     station_credentials: Option<StationCredentials>,
     ap_enabled: bool,
+    #[cfg(feature = "firmware-update")]
+    memory_profile: &'static personal_hopspot_memory::MemoryProfile,
 ) -> (
     Option<AutoWifi<'static, MEMBERS>>,
     Option<Stack<'static>>,
@@ -209,6 +212,15 @@ pub(in crate::s3) fn build_wifi(
             )
             .expect("wifi connect task fits"),
         );
+        #[cfg(feature = "firmware-update")]
+        spawner.spawn(
+            super::super::firmware_update_listener::firmware_update_listener_task(
+                stack,
+                memory_profile,
+                "station",
+            )
+            .expect("firmware update listener task fits"),
+        );
         Some(AutoWifiSegment {
             stack,
             discovery,
@@ -234,6 +246,15 @@ pub(in crate::s3) fn build_wifi(
         for _ in 0..HTTP_SERVER_WORKERS {
             spawner.spawn(http_server_task(ap_stack).expect("http server task fits"));
         }
+        #[cfg(feature = "firmware-update")]
+        spawner.spawn(
+            super::super::firmware_update_listener::firmware_update_listener_task(
+                ap_stack,
+                memory_profile,
+                "softap",
+            )
+            .expect("firmware update listener task fits"),
+        );
         let (server0, client0) = build_tcp_rendezvous_listener(ap_stack);
         let (server1, client1) = build_tcp_rendezvous_listener(ap_stack);
         let (server2, client2) = build_tcp_rendezvous_listener(ap_stack);

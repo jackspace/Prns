@@ -266,6 +266,8 @@ mod captive_portal;
 mod configuration;
 mod connectivity;
 mod display;
+#[cfg(feature = "firmware-update")]
+mod firmware_update_listener;
 
 use captive_portal::ap_ssid;
 use configuration::{hopspot_wifi_config, HopspotWifiConfig, HopspotWifiConfigSource};

@@ -123,10 +123,6 @@ pub mod bluetooth_auto;
 ))]
 pub mod c6;
 #[cfg(all(target_arch = "xtensa", feature = "firmware-update"))]
-#[expect(
-    dead_code,
-    reason = "the install entry points are driven by a transport, which lands beside this engine"
-)]
 mod firmware_update;
 #[cfg(any(target_arch = "riscv32", target_arch = "xtensa"))]
 mod flash;

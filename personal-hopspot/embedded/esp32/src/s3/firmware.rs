@@ -237,6 +237,8 @@ pub(super) async fn run_core<B: Esp32S3Board>(
         mac_octets,
         initial_wifi_station,
         radio_mode == RadioMode::AccessPoint,
+        #[cfg(feature = "firmware-update")]
+        B::MEMORY_PROFILE,
     );
     boot_stage(BootPhase::WifiReady);
     log::info!(
