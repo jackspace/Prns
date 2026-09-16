@@ -52,6 +52,9 @@ jtag-logging = ["esp-println/jtag-serial"]
 silent-logging = ["esp-println/no-op"]
 # Developer-only interoperability fixture. Shipping board packages do not enable it.
 wifi-security-probe = []
+# Signed A/B firmware installs. Off in every shipping board package: it selects a dual-slot memory
+# profile, so a board built with it needs the matching partition table flashed over USB first.
+firmware-update = ["dep:blake2"]
 
 [dependencies]
 cfg-if = "1.0"
@@ -91,6 +94,9 @@ esp-phy = "0.2.0"
 esp-backtrace = { version = "0.19", default-features = false, features = ["esp32s3", "panic-handler", "println"] }
 esp-println = { version = "0.17", default-features = false, features = ["esp32s3", "log-04"] }
 esp-bootloader-esp-idf = { version = "0.5", features = ["esp32s3"] }
+# The firmware-update digest. Minisign prehashes with BLAKE2b-512, so the image is hashed with the
+# same function the signer used, streaming and again from flash.
+blake2 = { version = "0.10", default-features = false, optional = true }
 ssd1306 = "0.9"
 esp-rtos = { version = "0.3.0", features = ["esp32s3", "embassy", "esp-radio"] }
 esp-radio-rtos-driver = { version = "0.3.0", default-features = false }

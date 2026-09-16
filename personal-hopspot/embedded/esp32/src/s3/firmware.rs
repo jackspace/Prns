@@ -1024,6 +1024,9 @@ pub(super) async fn run_core<B: Esp32S3Board>(
 
     spawner.spawn(watchdog_task(rtc.rwdt).expect("watchdog task fits"));
 
+    #[cfg(feature = "firmware-update")]
+    spawner.spawn(ota_health_task(B::MEMORY_PROFILE).expect("ota health task fits"));
+
     if B::Gnss::AVAILABILITY == screen::GnssAvailability::Available {
         let run = crate::storage::allocate_psram(gnss.drive());
         let run: core::pin::Pin<&'static mut dyn core::future::Future<Output = ()>> =
@@ -1153,6 +1156,44 @@ async fn watchdog_task(mut watchdog: esp_hal::rtc_cntl::Rwdt) -> ! {
                 log::warn!("watchdog: core1 heartbeat missing");
             }
         }
+    }
+}
+
+/// Confirm the running image once core 1 has proven it is alive, not merely that the bootloader
+/// found something to jump to. A single-slot board has nothing to confirm and says so at debug
+/// level; an erased boot selection, which is what a migration flash leaves behind, is repaired to
+/// ota_0 here rather than by guessing at install time.
+#[cfg(feature = "firmware-update")]
+#[embassy_executor::task]
+async fn ota_health_task(profile: &'static personal_hopspot_memory::MemoryProfile) {
+    use crate::firmware_update::{self, SlotHealth};
+
+    loop {
+        Timer::after(Duration::from_secs(1)).await;
+        if CORE_ONE_HEARTBEAT.load(Ordering::Relaxed) < firmware_update::VALIDATE_HEARTBEATS {
+            continue;
+        }
+        // An install owns the boot selection from its first byte to the reset that follows
+        // success. Firing inside its post-activation window would mark the freshly selected slot
+        // valid before that image has ever booted, erasing the rollback evidence, so the install
+        // is waited out: success ends in a reset and this task with it, failure releases the guard
+        // and the next tick proceeds against the slot that is still running.
+        if firmware_update::install_in_progress() {
+            continue;
+        }
+        break;
+    }
+    let memory = EspFirmwareMemory::new(profile);
+    match firmware_update::mark_running_slot_valid(&memory) {
+        Ok(SlotHealth::NoOtaSlots) => {
+            log::debug!("update: no ota slots on this partition table");
+        }
+        Ok(SlotHealth::AlreadyValid) => {}
+        Ok(SlotHealth::MarkedValid) => log::info!("update: running image marked valid"),
+        Ok(SlotHealth::SelectionRepaired) => {
+            log::info!("update: ota selection repaired to ota_0");
+        }
+        Err(error) => log::warn!("update: could not mark the running image valid: {error}"),
     }
 }
 
