@@ -120,6 +120,10 @@ impl NorFlash for EspRomFlash {
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
         check_erase(self, from, to).map_err(EspRomFlashError::Contract)?;
+        // Park the other core once for the whole erase rather than once per ROM call. See the
+        // note on `write`; the per-call guards below become no-ops while this one is held.
+        #[cfg(all(target_arch = "xtensa", feature = "firmware-update"))]
+        let _park = OtherCorePark::acquire();
         for sector in from as usize / SECTOR_LEN..to as usize / SECTOR_LEN {
             let sector = sector as u32;
             if !sector_is_erased(sector)? {
@@ -131,6 +135,19 @@ impl NorFlash for EspRomFlash {
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
         check_write(self, offset, bytes.len()).map_err(EspRomFlashError::Contract)?;
+        // The ROM is fed in 256 byte chunks, and parking the other core around each one makes a
+        // 4 KiB sector cost sixteen park and unpark cycles. That is invisible for the occasional
+        // journal append this path was written for, and ruinous for a firmware image: measured at
+        // roughly 3.2 seconds per sector over Wi-Fi, with core 1 missing watchdog heartbeats
+        // throughout and the transfer eventually losing its TCP connection. Park once for the
+        // whole write instead. Nesting is safe by construction: `acquire` only parks a core it
+        // finds running, so the per-chunk guards below find nothing to do while this one is held.
+        //
+        // Gated on `firmware-update` so the shipping builds keep the short park windows the
+        // per-call guards were chosen for. Lifting the gate would hand the journal writer the same
+        // win and is worth doing, but it wants a trunk measurement of the journal append first.
+        #[cfg(all(target_arch = "xtensa", feature = "firmware-update"))]
+        let _park = OtherCorePark::acquire();
         let mut at = offset;
         for chunk in bytes.chunks(BOUNCE_WORDS * WORD_LEN) {
             let mut bounce = [0u32; BOUNCE_WORDS];
