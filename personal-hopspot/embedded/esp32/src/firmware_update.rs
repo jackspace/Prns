@@ -365,7 +365,7 @@ impl FirmwareInstall {
                 .map_err(InstallError::Flash)?;
             readback.update(&self.sector[..take]);
             verified += take;
-            if verified % (READBACK_YIELD_SECTORS * FLASH_SECTOR_LEN) == 0 {
+            if verified.is_multiple_of(READBACK_YIELD_SECTORS * FLASH_SECTOR_LEN) {
                 yield_now().await;
             }
         }
@@ -404,7 +404,7 @@ impl FirmwareInstall {
         self.streamed.update(&self.sector[..self.buffered]);
         self.received += self.buffered;
         self.buffered = 0;
-        if self.received % INSTALL_PROGRESS_LOG_BYTES == 0 {
+        if self.received.is_multiple_of(INSTALL_PROGRESS_LOG_BYTES) {
             log::info!(
                 "update: {}/{} bytes into {}",
                 self.received,
@@ -717,7 +717,7 @@ const fn base64_sextet(byte: u8) -> Option<u8> {
 
 fn decode_base64(encoded: &str, out: &mut [u8]) -> Option<usize> {
     let encoded = encoded.trim_end().as_bytes();
-    if encoded.is_empty() || encoded.len() % 4 != 0 {
+    if encoded.is_empty() || !encoded.len().is_multiple_of(4) {
         return None;
     }
     let groups = encoded.len() / 4;
