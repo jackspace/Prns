@@ -1,0 +1,14 @@
+{
+  "implementation": "RNS 1.4.2 (interpreted)",
+  "slug": "rns-1.4.2-interpreted",
+  "language": "Python",
+  "crypto_backend": "PyCA cryptography / OpenSSL",
+  "role": "reference",
+  "repo": "https://github.com/markqvist/Reticulum",
+  "pinned_ref": "1.4.2",
+  "license": "Reticulum License",
+  "notes": "RNS 1.4.2 loaded the way an ordinary user runs it: no Cython, no object cache. This is the honest baseline the compiled reference should be measured against; runs are rejected if any native RNS extension module is loaded.",
+  "participant": {
+    "command": ["{reference_python}", "-u", "{benchmark_dir}/reference/interpreted_reference.py", "{benchmark_dir}/reference/participant_node.py"]
+  }
+}
