@@ -30,6 +30,7 @@ use esp_bootloader_esp_idf::partitions::{self, AppPartitionSubType};
 use portable_atomic::{AtomicBool, Ordering};
 use prns_core::crypto::{ed25519_verify, Ed25519PublicKey, Ed25519Signature};
 
+use crate::firmware_update_plan as plan;
 use crate::flash::{EspRomFlash, EspRomFlashError};
 use crate::memory::EspFirmwareMemory;
 
@@ -226,12 +227,17 @@ pub(crate) fn begin(
         })?;
     let ota_data = find_raw(&table, RAW_TYPE_DATA, RAW_SUBTYPE_DATA_OTA)
         .ok_or(InstallError::BootSelectionMissing)?;
-    // One comparison against the compiled profile replaces a hand-kept list of regions to avoid.
-    // Whatever the profile protects, from the identity head to the route journal, is protected
-    // here too, including regions added after this file was written.
-    check_slot(AppPartitionSubType::Ota0, &ota_0, firmware_owned)?;
-    check_slot(AppPartitionSubType::Ota1, &ota_1, update_slot)?;
-    check_boot_selection(&ota_data, boot_selection)?;
+    let layout = plan::Table {
+        ota_0: row_of(&ota_0),
+        ota_1: row_of(&ota_1),
+        ota_data: row_of(&ota_data),
+        firmware_owned,
+        update_slot,
+        boot_selection,
+    };
+    // Refuse a table that is not the one this firmware was compiled against before reading
+    // anything else from it, so a board carrying the wrong partitions is told exactly that.
+    layout.check()?;
 
     // Which slot the MMU is actually executing from, read independently of otadata. The bootloader
     // may have fallen back, or a migration may have left a stale selection behind, and "write the
@@ -247,33 +253,10 @@ pub(crate) fn begin(
         ota.current_app_partition()
             .map_err(InstallError::Partitions)?
     };
-    // An erased otadata reads back as a Factory selection, and this table has no factory row, so
-    // "the other slot" of Factory would fall through to ota_0: the exact slot a freshly migrated
-    // board is executing from. Refuse rather than guess; the health task repairs an unreadable
-    // selection to ota_0 within seconds and the retry then targets ota_1 safely.
-    let selected_offset = match selected {
-        AppPartitionSubType::Ota0 => ota_0.offset(),
-        AppPartitionSubType::Ota1 => ota_1.offset(),
-        _ => return Err(InstallError::RunningSlotUnknown),
-    };
-    if booted != selected_offset {
-        return Err(InstallError::BootedSlotDisagrees {
-            booted,
-            selected: selected_offset,
-        });
-    }
-
-    let (target, slot_offset, slot_len) = match selected {
-        AppPartitionSubType::Ota0 => (AppPartitionSubType::Ota1, ota_1.offset(), ota_1.len()),
-        _ => (AppPartitionSubType::Ota0, ota_0.offset(), ota_0.len()),
-    };
-    let slot_len = slot_len as usize;
-    if declared_len > slot_len {
-        return Err(InstallError::ImageTooLarge {
-            image_len: declared_len,
-            slot_len,
-        });
-    }
+    let staged_plan = plan::plan(&layout, declared_len, booted, planned_slot(selected))?;
+    let target = app_subtype(staged_plan.target);
+    let slot_offset = staged_plan.offset;
+    let slot_len = staged_plan.len;
 
     log::info!(
         "update: staging {declared_len} bytes into {} at 0x{slot_offset:X}",
@@ -563,7 +546,20 @@ fn select_slot(
     ota.set_current_app_partition(slot)
         .map_err(InstallError::Partitions)?;
     ota.set_current_ota_state(OtaImageState::New)
-        .map_err(InstallError::Partitions)
+        .map_err(InstallError::Partitions)?;
+    // Those are two separate flash writes, and power loss between them leaves the new selection
+    // carrying whatever state the first write left behind. Read both back before calling the
+    // install done: a selection that does not say New is one the health task would later argue
+    // with, and it is better to fail the install here, with the old image still selected and
+    // bootable, than to reboot into a half-written decision.
+    let written_slot = ota
+        .current_app_partition()
+        .map_err(InstallError::Partitions)?;
+    let written_state = ota.current_ota_state().map_err(InstallError::Partitions)?;
+    if written_slot != slot || written_state != OtaImageState::New {
+        return Err(InstallError::BootSelectionNotConfirmed);
+    }
+    Ok(())
 }
 
 fn find_raw<'a>(
@@ -592,20 +588,66 @@ fn booted_slot(table: &partitions::PartitionTable<'_>) -> Option<AppPartitionSub
     .map(|(slot, _)| slot)
 }
 
-fn check_slot(
-    slot: AppPartitionSubType,
-    entry: &partitions::PartitionEntry<'_>,
-    region: [u32; 2],
-) -> Result<(), InstallError> {
-    if entry.offset() == region[0] && entry.len() == region[1] - region[0] {
-        return Ok(());
-    }
-    Err(InstallError::SlotOutsideProfile {
-        slot,
+fn row_of(entry: &partitions::PartitionEntry<'_>) -> plan::Row {
+    plan::Row {
         offset: entry.offset(),
         len: entry.len(),
-        expected: region,
-    })
+    }
+}
+
+/// The planner speaks of the two application slots only. Anything else, including the Factory an
+/// erased otadata reads back as, is "no usable selection".
+fn planned_slot(slot: AppPartitionSubType) -> Option<plan::Slot> {
+    match slot {
+        AppPartitionSubType::Ota0 => Some(plan::Slot::Ota0),
+        AppPartitionSubType::Ota1 => Some(plan::Slot::Ota1),
+        _ => None,
+    }
+}
+
+fn app_subtype(slot: plan::Slot) -> AppPartitionSubType {
+    match slot {
+        plan::Slot::Ota0 => AppPartitionSubType::Ota0,
+        plan::Slot::Ota1 => AppPartitionSubType::Ota1,
+    }
+}
+
+impl From<plan::Refusal> for InstallError {
+    fn from(refusal: plan::Refusal) -> Self {
+        match refusal {
+            plan::Refusal::SlotOutsideProfile {
+                slot,
+                offset,
+                len,
+                expected,
+            } => Self::SlotOutsideProfile {
+                slot: app_subtype(slot),
+                offset,
+                len,
+                expected,
+            },
+            plan::Refusal::BootSelectionOutsideProfile {
+                offset,
+                len,
+                expected,
+            } => Self::BootSelectionOutsideProfile {
+                offset,
+                len,
+                expected,
+            },
+            plan::Refusal::RunningSlotUnknown => Self::RunningSlotUnknown,
+            plan::Refusal::BootedSlotDisagrees { booted, selected } => {
+                Self::BootedSlotDisagrees { booted, selected }
+            }
+            plan::Refusal::ImageTooLarge {
+                image_len,
+                slot_len,
+            } => Self::ImageTooLarge {
+                image_len,
+                slot_len,
+            },
+        }
+    }
 }
 
 fn check_boot_selection(
@@ -840,6 +882,7 @@ pub(crate) enum InstallError {
         expected: [u32; 2],
     },
     BootSelectionMissing,
+    BootSelectionNotConfirmed,
     BootSelectionOutsideProfile {
         offset: u32,
         len: u32,
@@ -878,6 +921,7 @@ impl InstallError {
             Self::SlotMissing { .. } => "slot-missing",
             Self::SlotOutsideProfile { .. } => "slot-outside-profile",
             Self::BootSelectionMissing => "boot-selection-missing",
+            Self::BootSelectionNotConfirmed => "boot-selection-not-confirmed",
             Self::BootSelectionOutsideProfile { .. } => "boot-selection-outside-profile",
             Self::RunningSlotUnknown => "running-slot-unknown",
             Self::BootedSlotUnknown => "booted-slot-unknown",
@@ -971,6 +1015,10 @@ impl core::fmt::Display for InstallError {
             Self::BootSelectionMissing => write!(
                 formatter,
                 "partition table has no otadata slot; flash the A/B table first"
+            ),
+            Self::BootSelectionNotConfirmed => write!(
+                formatter,
+                "the boot selection did not read back as the slot and state just written"
             ),
             Self::BootSelectionOutsideProfile {
                 offset,

@@ -13,6 +13,14 @@ agrees with the on-device verifier.
 
 Requires PyNaCl (pip install pynacl).
 
+Deliberately absent from tools/tasks.toml. The task control plane registers
+tools under tools/<domain>/ for the five domains in TOOL_DOMAINS, and "ota" is
+not one of them, so registering this would mean widening that tuple to carry a
+bench-only test-key signer. It also needs a Python package the control plane
+cannot express: `requires` names commands, not pip distributions, so a
+registered task would break on a fresh checkout. Run it by path instead.
+Release signing stays with minisign.
+
 Commands:
   keygen <keydir>          create ota-test.key and ota-test.pub in <keydir>,
                            print the HOPSPOT_OTA_PUBKEY value
@@ -26,7 +34,10 @@ import os
 import sys
 import time
 
-from nacl.signing import SigningKey
+try:
+    from nacl.signing import SigningKey
+except ImportError:
+    sys.exit("this signer needs PyNaCl: pip install pynacl")
 
 KEY_FILE = "ota-test.key"
 PUB_FILE = "ota-test.pub"

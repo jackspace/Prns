@@ -97,6 +97,12 @@ impl ReadNorFlash for EspRomFlash {
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
         check_read(self, offset, bytes.len()).map_err(EspRomFlashError::Contract)?;
+        // Same reasoning as `write`: the ROM is fed in 256 byte chunks, so a 4 KiB sector read
+        // otherwise costs sixteen park and unpark cycles. The install's readback pass covers the
+        // whole image sector by sector, which made this the second busiest park site on the board.
+        // Park once for the whole read; the per-call guards below then find nothing to do.
+        #[cfg(all(target_arch = "xtensa", feature = "firmware-update"))]
+        let _park = OtherCorePark::acquire();
         let mut at = offset;
         for chunk in bytes.chunks_mut(BOUNCE_WORDS * WORD_LEN) {
             let mut bounce = [0u32; BOUNCE_WORDS];

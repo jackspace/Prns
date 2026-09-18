@@ -45,6 +45,10 @@ const UPLOAD_CHUNK_BYTES: usize = 4096;
 /// Ten minutes. A whole image over a poor link has been measured at a few KB/s, and a timeout
 /// firing mid transfer looks exactly like a device fault when it is really a slow radio.
 const SOCKET_TIMEOUT_SECS: u64 = 600;
+/// The header and the signature document together are under a kilobyte, so they get a short
+/// deadline rather than the image's. This is what stops an unauthenticated peer on the bench port
+/// from holding the install guard for the full socket timeout by connecting and stalling.
+const HANDSHAKE_TIMEOUT_SECS: u64 = 20;
 /// Long enough for the success line to leave the board before the reset takes the link down.
 const REBOOT_HOLDOFF_MS: u64 = 500;
 /// One listener per stack: the station uplink and the SoftAP.
@@ -134,7 +138,16 @@ async fn serve(
     peer: Option<embassy_net::IpEndpoint>,
 ) -> Result<Served, ListenerError> {
     let mut header = [0u8; REQUEST_HEADER_LEN];
-    read_exact(socket, &mut header).await?;
+    // The ten minute socket timeout exists for a whole image over a poor link. Applying it to the
+    // handshake as well lets anyone who can reach the port hold the install guard for ten minutes
+    // by connecting and saying nothing, so the header and the signature get a short deadline of
+    // their own. Both are tiny and arrive together in practice.
+    with_timeout(
+        Duration::from_secs(HANDSHAKE_TIMEOUT_SECS),
+        read_exact(socket, &mut header),
+    )
+    .await
+    .map_err(|_| ListenerError::HandshakeTimeout)??;
     if &header[..REQUEST_MAGIC.len()] != REQUEST_MAGIC {
         return Err(ListenerError::RequestMagic);
     }
@@ -155,7 +168,12 @@ async fn serve(
     // Taken before the signature is even read: staging writes engine state, and a second
     // connection arriving mid install must be refused rather than allowed to overwrite it.
     let guard = InstallGuard::acquire().map_err(ListenerError::Install)?;
-    read_exact(socket, &mut signature_buffer[..signature_len]).await?;
+    with_timeout(
+        Duration::from_secs(HANDSHAKE_TIMEOUT_SECS),
+        read_exact(socket, &mut signature_buffer[..signature_len]),
+    )
+    .await
+    .map_err(|_| ListenerError::HandshakeTimeout)??;
     let document = core::str::from_utf8(&signature_buffer[..signature_len])
         .map_err(|_| ListenerError::SignatureNotText)?;
     firmware_update::stage_signature(document).map_err(ListenerError::Install)?;
@@ -260,6 +278,7 @@ async fn write_all(socket: &mut TcpSocket<'static>, mut bytes: &[u8]) -> bool {
 enum ListenerError {
     RequestTruncated,
     RequestReadFailed,
+    HandshakeTimeout,
     RequestMagic,
     SignatureMissing,
     SignatureDocumentTooLarge { document_len: usize },
@@ -272,6 +291,7 @@ impl ListenerError {
         match self {
             Self::RequestTruncated => "request-truncated",
             Self::RequestReadFailed => "request-read-failed",
+            Self::HandshakeTimeout => "handshake-timeout",
             Self::RequestMagic => "request-magic",
             Self::SignatureMissing => "signature-missing",
             Self::SignatureDocumentTooLarge { .. } => "signature-document-too-large",
@@ -288,6 +308,10 @@ impl core::fmt::Display for ListenerError {
                 write!(formatter, "the request ended before the header was complete")
             }
             Self::RequestReadFailed => write!(formatter, "the link failed while reading the request"),
+            Self::HandshakeTimeout => write!(
+                formatter,
+                "the header and signature did not arrive within {HANDSHAKE_TIMEOUT_SECS}s"
+            ),
             Self::RequestMagic => write!(formatter, "this is not a firmware update request"),
             Self::SignatureMissing => {
                 write!(formatter, "an image needs a signature document ahead of it")
