@@ -78,8 +78,9 @@ def load_compiled_rns():
     )
     version = getattr(RNS, "__version__", None) or getattr(RNS, "VERSION", None)
     compiled = getattr(RNS, "compiled", False) is True
-    if str(version) != "1.4.2":
-        raise SystemExit(f"compiled reference requires RNS 1.4.2, loaded {version!r}")
+    expected = os.environ.get("RNS_REFERENCE_VERSION", "1.4.2")
+    if str(version) != expected:
+        raise SystemExit(f"compiled reference requires RNS {expected}, loaded {version!r}")
     if not compiled:
         raise SystemExit("compiled reference requires RNS.compiled == true")
     if not native_modules:
@@ -87,6 +88,7 @@ def load_compiled_rns():
 
     proof = {
         "rns": str(version),
+        "expected_rns": expected,
         "compiled": compiled,
         "native_module": native_modules[0],
         "native_modules": native_modules,

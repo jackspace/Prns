@@ -68,8 +68,9 @@ def load_interpreted_rns():
         if Path(module.__file__).suffix not in NATIVE_SUFFIXES
     )
     version = getattr(RNS, "__version__", None) or getattr(RNS, "VERSION", None)
-    if str(version) != "1.4.2":
-        raise SystemExit(f"interpreted reference requires RNS 1.4.2, loaded {version!r}")
+    expected = os.environ.get("RNS_REFERENCE_VERSION", "1.4.2")
+    if str(version) != expected:
+        raise SystemExit(f"interpreted reference requires RNS {expected}, loaded {version!r}")
     if native_modules:
         raise SystemExit(
             "interpreted reference loaded native extension modules: " + repr(native_modules)
@@ -77,6 +78,7 @@ def load_interpreted_rns():
 
     proof = {
         "rns": str(version),
+        "expected_rns": expected,
         "compiled": getattr(RNS, "compiled", False) is True,
         "native_modules": native_modules,
         "native_module_count": len(native_modules),
