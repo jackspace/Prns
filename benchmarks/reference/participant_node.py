@@ -170,6 +170,26 @@ def run_relay(profile):
     os._exit(0)
 
 
+def reference_interface_kind():
+    """Which RNS interface family the reference should use.
+
+    The harness has always used TCPInterface, RNS's legacy TCP transport. RNS also
+    ships BackboneInterface, whose defaults differ sharply: TCPClientInterface and
+    TCPServerInterface both set BITRATE_GUESS to 10 Mbps, which Interface.optimise_mtu()
+    resolves to HW_MTU 8192, while BackboneInterface sets BITRATE_GUESS 1 Gbps and
+    HW_MTU 1048576. Which one the reference runs on is a choice the published results
+    tables never recorded, so it is made explicit and selectable here rather than
+    implied. BackboneInterface is epoll-based, so this is Linux-only.
+    """
+    return os.environ.get("RNS_BENCH_REFERENCE_INTERFACE", "tcp").strip().lower()
+
+
+def reference_bitrate_override():
+    """Force the reference's TCP bitrate, which also selects its MTU tier."""
+    raw = os.environ.get("RNS_BENCH_REFERENCE_BITRATE", "").strip()
+    return int(raw) if raw else None
+
+
 def interface_block(wire, role, addr, fixed_mtu=None, tcp_bitrate_bps=None):
     """One role's interface config plus the address its READY line should carry. UDP is
     symmetric (the orchestrator pre-assigns both ends as local>peer, the reference's
@@ -187,6 +207,10 @@ def interface_block(wire, role, addr, fixed_mtu=None, tcp_bitrate_bps=None):
             f"    forward_ip = {peer_host}\n"
             f"    forward_port = {peer_port}\n"
         ), addr
+    kind = reference_interface_kind()
+    server_type = "BackboneInterface" if kind == "backbone" else "TCPServerInterface"
+    client_type = "BackboneInterface" if kind == "backbone" else "TCPClientInterface"
+    tcp_bitrate_bps = reference_bitrate_override() or tcp_bitrate_bps
     if role == "responder":
         port = free_port()
         mtu_line = f"    fixed_mtu = {fixed_mtu}\n" if fixed_mtu else ""
@@ -194,8 +218,8 @@ def interface_block(wire, role, addr, fixed_mtu=None, tcp_bitrate_bps=None):
             f"    bitrate = {tcp_bitrate_bps}\n" if tcp_bitrate_bps else ""
         )
         return (
-            "  [[Bench TCP Server]]\n"
-            "    type = TCPServerInterface\n"
+            f"  [[Bench {kind} Server]]\n"
+            f"    type = {server_type}\n"
             "    enabled = True\n"
             "    listen_ip = 127.0.0.1\n"
             f"    listen_port = {port}\n"
@@ -206,8 +230,8 @@ def interface_block(wire, role, addr, fixed_mtu=None, tcp_bitrate_bps=None):
     mtu_line = f"    fixed_mtu = {fixed_mtu}\n" if fixed_mtu else ""
     bitrate_line = f"    bitrate = {tcp_bitrate_bps}\n" if tcp_bitrate_bps else ""
     return (
-        "  [[Bench TCP Client]]\n"
-        "    type = TCPClientInterface\n"
+        f"  [[Bench {kind} Client]]\n"
+        f"    type = {client_type}\n"
         "    enabled = True\n"
         f"    target_host = {host}\n"
         f"    target_port = {port}\n"
