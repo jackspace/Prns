@@ -104,12 +104,7 @@ pub(crate) enum CommandMode {
         #[arg(long, value_name = "DIR", hide = true)]
         mount: Option<PathBuf>,
         /// Remote Control identity vault page (4096 bytes) for ESP sparse flash.
-        #[arg(
-            long,
-            value_name = "FILE",
-            hide = true,
-            requires = "rc_vault_offset"
-        )]
+        #[arg(long, value_name = "FILE", hide = true, requires = "rc_vault_offset")]
         rc_vault: Option<PathBuf>,
         /// Flash offset for `--rc-vault` (decimal or `0x`-prefixed hex).
         #[arg(long, value_name = "OFFSET", hide = true, requires = "rc_vault")]
