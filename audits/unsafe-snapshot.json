@@ -6517,6 +6517,21 @@
     },
     {
       "graphs": {
+        "controller-linux": []
+      },
+      "name": "dlib",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 0,
+        "externs": 4,
+        "functions": 1,
+        "impls": 1,
+        "tokens": 6
+      },
+      "version": "0.5.3"
+    },
+    {
+      "graphs": {
         "android": [],
         "controller-linux": [
           "default",
@@ -6668,6 +6683,24 @@
         "tokens": 0
       },
       "version": "0.2.12"
+    },
+    {
+      "graphs": {
+        "controller-linux": [
+          "default",
+          "std"
+        ]
+      },
+      "name": "downcast-rs",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 0,
+        "externs": 0,
+        "functions": 0,
+        "impls": 0,
+        "tokens": 0
+      },
+      "version": "1.2.1"
     },
     {
       "graphs": {
@@ -8650,6 +8683,7 @@
       "graphs": {
         "controller-linux": [],
         "controller-macos": [],
+        "controller-windows": [],
         "daemon-linux": [],
         "daemon-macos": [],
         "daemon-windows": [],
@@ -12981,6 +13015,7 @@
       "graphs": {
         "controller-linux": [],
         "controller-macos": [],
+        "controller-windows": [],
         "daemon-linux": [],
         "daemon-macos": [],
         "daemon-windows": [],
@@ -14285,6 +14320,10 @@
         "controller-macos": [
           "default",
           "std"
+        ],
+        "controller-windows": [
+          "default",
+          "std"
         ]
       },
       "name": "indexmap",
@@ -15569,6 +15608,7 @@
           "net",
           "netlink",
           "no_std",
+          "prctl",
           "std",
           "system",
           "xdp"
@@ -24289,6 +24329,9 @@
     },
     {
       "graphs": {
+        "controller-linux": [
+          "default"
+        ],
         "daemon-macos": [
           "default"
         ],
@@ -25258,15 +25301,30 @@
     {
       "graphs": {
         "controller-linux": [
+          "default",
           "pollster",
+          "wayland",
+          "wayland-backend",
+          "wayland-client",
+          "wayland-protocols",
           "xdg-portal"
         ],
         "controller-macos": [
+          "default",
           "pollster",
+          "wayland",
+          "wayland-backend",
+          "wayland-client",
+          "wayland-protocols",
           "xdg-portal"
         ],
         "controller-windows": [
+          "default",
           "pollster",
+          "wayland",
+          "wayland-backend",
+          "wayland-client",
+          "wayland-protocols",
           "xdg-portal"
         ]
       },
@@ -25717,6 +25775,7 @@
           "fs",
           "mm",
           "net",
+          "process",
           "std",
           "system",
           "time"
@@ -25728,6 +25787,7 @@
           "fs",
           "mm",
           "net",
+          "process",
           "std",
           "system",
           "time"
@@ -26123,6 +26183,21 @@
         "tokens": 95
       },
       "version": "0.1.29"
+    },
+    {
+      "graphs": {
+        "controller-linux": []
+      },
+      "name": "scoped-tls",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 1,
+        "externs": 0,
+        "functions": 0,
+        "impls": 1,
+        "tokens": 2
+      },
+      "version": "1.0.1"
     },
     {
       "graphs": {
@@ -33437,6 +33512,89 @@
     {
       "graphs": {
         "controller-linux": [
+          "client_system"
+        ]
+      },
+      "name": "wayland-backend",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 173,
+        "externs": 8,
+        "functions": 14,
+        "impls": 17,
+        "tokens": 212
+      },
+      "version": "0.3.17"
+    },
+    {
+      "graphs": {
+        "controller-linux": []
+      },
+      "name": "wayland-client",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 1,
+        "externs": 0,
+        "functions": 0,
+        "impls": 0,
+        "tokens": 1
+      },
+      "version": "0.31.15"
+    },
+    {
+      "graphs": {
+        "controller-linux": [
+          "client",
+          "unstable",
+          "wayland-client"
+        ]
+      },
+      "name": "wayland-protocols",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 0,
+        "externs": 0,
+        "functions": 0,
+        "impls": 0,
+        "tokens": 0
+      },
+      "version": "0.32.13"
+    },
+    {
+      "graphs": {
+        "controller-linux": []
+      },
+      "name": "wayland-scanner",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 8,
+        "externs": 0,
+        "functions": 0,
+        "impls": 2,
+        "tokens": 10
+      },
+      "version": "0.31.11"
+    },
+    {
+      "graphs": {
+        "controller-linux": [
+          "client"
+        ]
+      },
+      "name": "wayland-sys",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 16,
+        "externs": 11,
+        "functions": 7,
+        "impls": 2,
+        "tokens": 36
+      },
+      "version": "0.31.11"
+    },
+    {
+      "graphs": {
+        "controller-linux": [
           "AbortSignal",
           "AnimationEvent",
           "Blob",
@@ -36333,6 +36491,44 @@
     {
       "graphs": {
         "controller-linux": [
+          "_deflate-any",
+          "deflate",
+          "deflate-flate2",
+          "deflate-zopfli",
+          "flate2",
+          "zopfli"
+        ],
+        "controller-macos": [
+          "_deflate-any",
+          "deflate",
+          "deflate-flate2",
+          "deflate-zopfli",
+          "flate2",
+          "zopfli"
+        ],
+        "controller-windows": [
+          "_deflate-any",
+          "deflate",
+          "deflate-flate2",
+          "deflate-zopfli",
+          "flate2",
+          "zopfli"
+        ]
+      },
+      "name": "zip",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 9,
+        "externs": 0,
+        "functions": 2,
+        "impls": 6,
+        "tokens": 18
+      },
+      "version": "2.4.2"
+    },
+    {
+      "graphs": {
+        "controller-linux": [
           "rust-allocator",
           "std"
         ],
@@ -36392,6 +36588,38 @@
         "tokens": 70
       },
       "version": "1.0.23"
+    },
+    {
+      "graphs": {
+        "controller-linux": [
+          "default",
+          "gzip",
+          "std",
+          "zlib"
+        ],
+        "controller-macos": [
+          "default",
+          "gzip",
+          "std",
+          "zlib"
+        ],
+        "controller-windows": [
+          "default",
+          "gzip",
+          "std",
+          "zlib"
+        ]
+      },
+      "name": "zopfli",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "unsafe": {
+        "blocks": 3,
+        "externs": 0,
+        "functions": 1,
+        "impls": 0,
+        "tokens": 4
+      },
+      "version": "0.8.3"
     },
     {
       "graphs": {
