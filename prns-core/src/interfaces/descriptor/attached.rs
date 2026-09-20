@@ -104,6 +104,17 @@ impl IndexedAttachedInterfaces {
         self.index.insert(self.ids.len() - 1, &self.ids);
     }
 
+    pub fn set_mode(&mut self, id: InterfaceId, mode: crate::interfaces::InterfaceMode) -> bool {
+        let Some(row) = self.index.get(&id, &self.ids) else {
+            return false;
+        };
+        let Some(descriptor) = self.descriptors.get_mut(row) else {
+            return false;
+        };
+        descriptor.mode = mode;
+        true
+    }
+
     pub fn remove(&mut self, id: InterfaceId) {
         let Some(row) = self.index.get(&id, &self.ids) else {
             return;

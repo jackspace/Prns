@@ -16,10 +16,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Dioxus 0.7 / manganis only support 64-bit Android (compile_error on armv7).
           - arch: aarch64
             target: aarch64-linux-android
-          - arch: armv7
-            target: armv7-linux-androideabi
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:

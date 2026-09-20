@@ -14,7 +14,7 @@ pub enum SpreadingFactor {
 }
 
 impl SpreadingFactor {
-    pub(crate) const fn from_number(value: u8) -> Option<Self> {
+    pub const fn from_number(value: u8) -> Option<Self> {
         match value {
             5 => Some(Self::Sf5),
             6 => Some(Self::Sf6),
@@ -68,6 +68,15 @@ impl LoraBandwidth {
             Self::Bw125kHz => 125_000,
             Self::Bw250kHz => 250_000,
             Self::Bw500kHz => 500_000,
+        }
+    }
+
+    pub const fn from_khz(khz: u32) -> Option<Self> {
+        match khz {
+            125 => Some(Self::Bw125kHz),
+            250 => Some(Self::Bw250kHz),
+            500 => Some(Self::Bw500kHz),
+            _ => None,
         }
     }
 

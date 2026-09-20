@@ -24,6 +24,7 @@ use crate::manifold::interface_seam::{frame_cap_for, Interface};
 use crate::node_introspection::{
     FrameAccountingCoverage, InterfaceIfacSnapshot, InterfaceInventoryEntry,
 };
+use crate::remote_control::RemoteControlModeOutcome;
 
 use super::super::ManuallyAttached;
 use super::PrnsNodeHandle;
@@ -291,6 +292,51 @@ impl PrnsNodeHandle {
         };
         interface.name = Some(name.into());
         true
+    }
+
+    /// Re-mode a live interface: the registered status, its descriptor, and every fleet member folded under it move together, then the manifold is told so routing sees the new mode.
+    #[must_use]
+    pub fn set_interface_mode(
+        &self,
+        id: InterfaceId,
+        mode: crate::interfaces::InterfaceMode,
+    ) -> RemoteControlModeOutcome {
+        let Ok(mut map) = self.interfaces.lock() else {
+            return RemoteControlModeOutcome::Failed;
+        };
+        if !map.contains_key(&id) {
+            return RemoteControlModeOutcome::UnknownInterface;
+        }
+        let mut ids = std::vec![id];
+        for (member_id, registered) in map.iter() {
+            if let Membership::FleetMember { supervisor_id } = registered.placement.membership {
+                if supervisor_id == id && *member_id != id {
+                    ids.push(*member_id);
+                }
+            }
+        }
+        for update_id in &ids {
+            if let Some(registered) = map.get_mut(update_id) {
+                registered.mode = mode;
+                if let Some(descriptor) = registered.descriptor.as_mut() {
+                    descriptor.mode = mode;
+                }
+            }
+        }
+        drop(map);
+        for update_id in ids {
+            if self
+                .commands
+                .send(HostCommand::SetInterfaceMode {
+                    id: update_id,
+                    mode,
+                })
+                .is_err()
+            {
+                return RemoteControlModeOutcome::Failed;
+            }
+        }
+        RemoteControlModeOutcome::Applied
     }
 
     /// Every interface attached through this handle, as a complete [`InterfaceSnapshot`]: live vitals read at call time joined with the engine counts and fleet position. The raw fleet an inspection face can project for its own presentation, with no app-side bookkeeping.

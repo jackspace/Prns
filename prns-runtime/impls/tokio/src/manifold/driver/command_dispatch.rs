@@ -558,6 +558,10 @@ where
                 topology.detach(engine, id, departure, now);
                 CommandEffect::RecomputeWakeSchedules
             }
+            HostCommand::SetInterfaceMode { id, mode } => {
+                topology.set_mode(id, mode);
+                CommandEffect::UNCHANGED
+            }
             HostCommand::DropRoute { destination, reply } => {
                 let effect = engine.drop_route(&destination, topology.view());
                 if let Some(removed) = effect.removed_route() {

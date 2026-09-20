@@ -1,0 +1,140 @@
+name: controller-windows-package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: 1.96.0
+
+jobs:
+  # ESP release toolchain install is Linux-only; build the Flash firmware tree here
+  # and hand it to each Windows packager via --firmware-from.
+  firmware:
+    name: tree firmware (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.96.0
+          targets: thumbv7em-none-eabihf,riscv32imac-unknown-none-elf
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: controller-windows-firmware
+          workspaces: |
+
+      - name: Install ESP release toolchain
+        env:
+          # espup hits the GitHub API; unauthenticated runners get 403 rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/prns release toolchain esp install -- "${RUNNER_TEMP}/prns-esp-tools"
+
+      - name: Build hopspot-flash + stage firmware tree
+        run: |
+          cargo build --release --locked -p hopspot-flash
+          ./tools/prns run release.controller.firmware.stage -- \
+            --out-dir target/controller-firmware-staging \
+            --hopspot-flash target/release/hopspot-flash
+          test -f target/controller-firmware-staging/firmware/bundle.json
+          test -f target/controller-firmware-staging/firmware/heltec-v4/target.json
+          test -f target/controller-firmware-staging/firmware/heltec-v4-r8/target.json
+          test -f target/controller-firmware-staging/firmware/mesh-tower-v2/target.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: controller-tree-firmware
+          path: target/controller-firmware-staging/firmware
+          if-no-files-found: error
+          retention-days: 2
+
+  package:
+    name: unsigned Windows Controller (${{ matrix.arch }})
+    needs: firmware
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x86_64
+          - runner: windows-11-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.96.0
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: controller-windows-package-${{ matrix.arch }}
+          workspaces: |
+            .
+            personal-hopspot/remote-control-desktop
+
+      - uses: cargo-bins/cargo-binstall@57726869e28f4038a847ec56e5fdd9142fded110
+        with:
+          version: "1.21.0"
+
+      - name: Install exact Dioxus CLI
+        shell: bash
+        run: cargo binstall --locked --no-confirm --force dioxus-cli@0.7.5
+
+      - name: Download tree firmware
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: controller-tree-firmware
+          path: target/controller-firmware-from
+
+      - name: Package unsigned Controller portable
+        shell: bash
+        run: |
+          dx --version | grep -E '(^| )0\.7\.5($| )'
+          test -f target/controller-firmware-from/bundle.json
+          # Prefer the Windows path; MSYS `/usr/bin/bash` is not executable by
+          # native Windows Python spawned from tools/prns.
+          export PRNS_BASH="C:/Program Files/Git/bin/bash.exe"
+          export PATH="/c/Program Files/Git/bin:/c/Program Files/Git/usr/bin:$PATH"
+          python tools/prns run release.controller.windows.package -- \
+            --out-dir target/controller-windows \
+            --firmware-from target/controller-firmware-from \
+            --arch ${{ matrix.arch }}
+
+      - name: Confirm embedded hopspot-flash
+        shell: bash
+        run: |
+          dest="target/controller-windows/PRNS-Controller"
+          test -d "$dest"
+          test -f "$dest/personal-hopspot-remote-control-desktop.exe"
+          test -f "$dest/hopspot-flash.exe"
+          "$dest/hopspot-flash.exe" --version
+          test -f "$dest/HOPSPOT_FLASH_VERSION.txt"
+          test -f "$dest/firmware/bundle.json"
+          test -f "$dest/firmware/heltec-v4/target.json"
+          test -f "$dest/firmware/heltec-v4-r8/target.json"
+          test -f "$dest/firmware/mesh-tower-v2/target.json"
+          zip="target/controller-windows/PRNS-Controller-windows-${{ matrix.arch }}-unsigned.zip"
+          test -f "$zip"
+          if command -v unzip >/dev/null 2>&1; then
+            unzip -t "$zip" >/dev/null
+          else
+            powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::OpenRead((Resolve-Path '$zip')).Dispose()"
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: PRNS-Controller-windows-${{ matrix.arch }}-unsigned
+          path: target/controller-windows/PRNS-Controller-windows-${{ matrix.arch }}-unsigned.zip
+          if-no-files-found: error
+          retention-days: 14

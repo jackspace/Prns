@@ -7,7 +7,7 @@ use crate::engine::{
     CommandId, CommandTiming, Departure, IssuedCommand, PersistenceFlushCause,
     PersistenceFlushTarget, SendRequestFailure, Settlement,
 };
-use crate::interfaces::{ConnectionView, InterfaceDescriptor, InterfaceId};
+use crate::interfaces::{ConnectionView, InterfaceDescriptor, InterfaceId, InterfaceMode};
 use crate::manifold::grant_lane::{TokioGrantConsumer, TokioGrantProducer};
 use crate::routing::links::channel::byte_stream::StreamId;
 use crate::routing::links::request::RequestId;
@@ -63,6 +63,10 @@ pub enum HostCommand {
     RemoveInterface {
         id: InterfaceId,
         departure: Departure,
+    },
+    SetInterfaceMode {
+        id: InterfaceId,
+        mode: InterfaceMode,
     },
     DropRoute {
         destination: DestinationHash,

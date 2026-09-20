@@ -1,0 +1,26 @@
+[application]
+name = "PRNS Controller"
+default_platform = "desktop"
+android_min_sdk_version = 30
+android_manifest = "android/AndroidManifest.xml"
+android_main_activity = "android/MainActivity.kt"
+
+[web.app]
+title = "PRNS Controller"
+
+[bundle]
+identifier = "org.personal.prns.controller"
+publisher = "Personal PRNS"
+short_description = "PRNS Controller for Personal Hopspot"
+
+[android]
+min_sdk = 30
+
+[android.raw]
+manifest = """
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+"""

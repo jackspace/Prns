@@ -1,0 +1,49 @@
+[package]
+name = "personal-hopspot-remote-control-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "PRNS Controller: desktop and Android remote-control client for Personal Hopspot."
+
+[workspace]
+resolver = "2"
+
+[lib]
+name = "personal_hopspot_remote_control_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "personal-hopspot-remote-control-desktop"
+path = "src/main.rs"
+
+[features]
+default = ["desktop"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
+
+[dependencies]
+dioxus = { version = "=0.7.5" }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
+thiserror = "2"
+prns-flash-manifest = { path = "../../prns-flash-manifest" }
+prns-core = { path = "../../prns-core", default-features = false }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+getrandom = "0.2"
+serde_json = "1"
+serialport = { version = "4.7", default-features = false }
+personal-rns = { path = "../../personal-rns", default-features = false, features = ["tokio-host", "tcp", "serial", "usb", "wifi-auto-apple", "shared-instance", "bluetooth-auto", "log", "tracing", "parallel-persistence", "parallel-resource-hash"] }
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "registry"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+personal-rns = { path = "../../personal-rns", default-features = false, features = ["tokio-host", "tcp", "wifi-auto-mdns", "bluetooth-auto", "usb", "log", "tracing", "parallel-persistence", "parallel-resource-hash"] }
+prns-ffi = { path = "../../prns-ffi", default-features = false, features = ["log"] }
+android_logger = "0.14"
+jni = "0.21"
+log = "0.4"
+ndk-context = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

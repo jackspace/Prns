@@ -772,6 +772,57 @@ audience = ["ci", "release"]
 entrypoint = ["python3", "tools/release/package-hopspot-flash.py"]
 requires = ["python3"]
 
+
+[[task]]
+id = "release.controller.macos.package"
+summary = "Build an unsigned macOS PRNS Controller .app with embedded hopspot-flash."
+domain = "release"
+effect = "workspace-write"
+platforms = ["macos"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["bash", "tools/release/package-controller-macos.sh"]
+requires = ["bash", "cargo", "dx"]
+
+[[task]]
+id = "release.controller.firmware.stage"
+summary = "Stage Controller-bundled board firmware under a firmware/ tree for Flash."
+domain = "release"
+effect = "workspace-write"
+platforms = ["linux", "macos"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["bash", "tools/release/embed-controller-firmware.sh"]
+requires = ["bash", "cargo"]
+
+[[task]]
+id = "release.controller.linux.package"
+summary = "Build an unsigned Linux PRNS Controller portable folder with hopspot-flash beside the exe."
+domain = "release"
+effect = "workspace-write"
+platforms = ["linux"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["bash", "tools/release/package-controller-linux.sh"]
+requires = ["bash", "cargo", "dx", "tar"]
+
+[[task]]
+id = "release.controller.windows.package"
+summary = "Build an unsigned Windows PRNS Controller portable folder with hopspot-flash.exe beside the exe."
+domain = "release"
+effect = "workspace-write"
+platforms = ["windows"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["bash", "tools/release/package-controller-windows.sh"]
+requires = ["bash", "cargo", "dx"]
+
+[[task]]
+id = "release.controller.android.package"
+summary = "Build an unsigned Android PRNS Controller APK (remote-control only; no Flash)."
+domain = "release"
+effect = "workspace-write"
+platforms = ["any"]
+audience = ["developer", "ci", "release"]
+entrypoint = ["bash", "tools/release/package-controller-android.sh"]
+requires = ["bash", "cargo", "dx"]
+
 [[task]]
 id = "release.attestation.record"
 summary = "Create release attestation metadata bound to exact subject checksums."
@@ -1069,3 +1120,5 @@ reason = "Cargo package metadata for the post-bootstrap cargo-tools forwarding a
 [[internal]]
 path = "tools/repo/cargo-tools-command/src/main.rs"
 reason = "Thin Cargo adapter that forwards arguments to the canonical tools/prns task registry."
+
+
