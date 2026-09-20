@@ -8015,7 +8015,7 @@ mod tests {
     fn remote_ble_auto_title_ignores_generic_card_names_and_takes_the_identity_prefix() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::BluetoothAuto, b"ble");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("bluetooth-auto");
+        card.set_name("bluetooth-auto").expect("card name fits");
         let mut entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
@@ -8038,7 +8038,8 @@ mod tests {
         assert_ne!(entry.name, "bluetooth-auto");
         apply_bluetooth_auto_identity_title(&mut entry, Some("7a1b"));
         assert_eq!(entry.name, "bluetooth-auto 7a1b");
-        card.set_name("bluetooth-auto 7a1b");
+        card.set_name("bluetooth-auto 7a1b")
+            .expect("card name fits");
         apply_remote_card(&mut entry, &card);
         apply_bluetooth_auto_identity_title(&mut entry, Some("ffff"));
         assert_eq!(entry.name, "bluetooth-auto 7a1b");
@@ -8050,9 +8051,10 @@ mod tests {
     fn remote_auto_wifi_card_group_becomes_an_ipv6_fact() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::AutoWifi, b"lan");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("auto-wifi");
-        card.set_config("W,field-lab");
-        card.set_group("fe80::aea7:4ff:fee1:4b3c");
+        card.set_name("auto-wifi").expect("card name fits");
+        card.set_config("W,field-lab").expect("card config fits");
+        card.set_group("fe80::aea7:4ff:fee1:4b3c")
+            .expect("card group fits");
         let mut entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
@@ -8145,10 +8147,12 @@ mod tests {
     fn remote_interface_entry_uses_card_group_and_config() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::BluetoothAuto, b"ble");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("bluetooth-auto 7a1b");
-        card.set_group("home");
-        card.set_config("BLE supervisor");
-        card.set_failure("radio timeout");
+        card.set_name("bluetooth-auto 7a1b")
+            .expect("card name fits");
+        card.set_group("home").expect("card group fits");
+        card.set_config("BLE supervisor").expect("card config fits");
+        card.set_failure("radio timeout")
+            .expect("card failure fits");
         card.destinations = 4;
         let entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
@@ -8184,12 +8188,13 @@ mod tests {
     fn remote_lora_entry_lists_tune_facts_under_config() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::LoRa, b"lora");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("LoRa");
+        card.set_name("LoRa").expect("card name fits");
         card.set_config(
             personal_rns::interfaces::lora::DEFAULT_915_PROFILE
                 .inventory_config()
                 .as_str(),
-        );
+        )
+        .expect("card config fits");
         let entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
