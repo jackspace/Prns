@@ -41,6 +41,9 @@ GRAPHS = (
     ("desktop-linux", "personal-hopspot/desktop/Cargo.toml", "x86_64-unknown-linux-gnu"),
     ("desktop-macos", "personal-hopspot/desktop/Cargo.toml", "aarch64-apple-darwin"),
     ("desktop-windows", "personal-hopspot/desktop/Cargo.toml", "x86_64-pc-windows-msvc"),
+    ("controller-linux", "personal-hopspot/remote-control-desktop/Cargo.toml", "x86_64-unknown-linux-gnu"),
+    ("controller-macos", "personal-hopspot/remote-control-desktop/Cargo.toml", "aarch64-apple-darwin"),
+    ("controller-windows", "personal-hopspot/remote-control-desktop/Cargo.toml", "x86_64-pc-windows-msvc"),
     ("android", "personal-hopspot/mobile/android/rust/Cargo.toml", "aarch64-linux-android"),
     ("ios", "personal-hopspot/mobile/ios/rust/Cargo.toml", "aarch64-apple-ios"),
     ("nrf52840", "personal-hopspot/embedded/nrf52840/Cargo.toml", "thumbv7em-none-eabihf"),
@@ -85,6 +88,7 @@ UNSAFE_EXCEPTIONS = {
     "prns-host-c",
     "personal-hopspot-android",
     "personal-hopspot-ios",
+    "personal-hopspot-remote-control-desktop",
     "t-echo",
     "personal-hopspot-esp32",
 }

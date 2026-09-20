@@ -4692,8 +4692,12 @@ fn controller_data_dir() -> PathBuf {
 fn android_files_dir() -> Option<PathBuf> {
     use jni::objects::{JObject, JString};
     let ctx = ndk_context::android_context();
+    // SAFETY: `ndk_context` returns the process-wide JavaVM pointer installed by the
+    // Android runtime; `from_raw` only wraps that existing handle.
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
     let mut env = vm.attach_current_thread().ok()?;
+    // SAFETY: `ctx.context()` is the JNI local/global Application context for this
+    // process; `from_raw` does not take ownership of a pointer the JVM still owns.
     let context = unsafe { JObject::from_raw(ctx.context().cast()) };
     let file = env
         .call_method(&context, "getFilesDir", "()Ljava/io/File;", &[])
@@ -6959,10 +6963,13 @@ fn format_announce_millis(millis: u64) -> String {
 fn local_civil(unix_secs: i64) -> Option<(i32, u32, u32, u32, u32, u32)> {
     let mut tm = std::mem::MaybeUninit::<libc::tm>::uninit();
     let time = libc::time_t::try_from(unix_secs).ok()?;
+    // SAFETY: `tm` is a caller-owned `MaybeUninit` buffer; POSIX `localtime_r` writes
+    // a complete `tm` there or returns null. The pointer is not retained.
     let ptr = unsafe { libc::localtime_r(&time, tm.as_mut_ptr()) };
     if ptr.is_null() {
         return None;
     }
+    // SAFETY: a non-null `localtime_r` return means `tm` was fully initialized.
     let tm = unsafe { tm.assume_init() };
     Some((
         tm.tm_year.checked_add(1900)?,

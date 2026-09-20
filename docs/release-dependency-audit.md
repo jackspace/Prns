@@ -28,20 +28,21 @@ dependencies, and checks advisories, licenses, sources, and bans with cargo-deny
 - RUSTSEC-2026-0204 is resolved by `crossbeam-epoch 0.9.20`.
 - RUSTSEC-2026-0194 and RUSTSEC-2026-0195 are resolved by `plist 1.10.0` and `quick-xml 0.41.0`.
 - `dirs`/`option-ext`, `serialport`, and `tokio-serial` were removed from the engine/application
-  graphs. The standalone hardware flasher intentionally carries exact-scoped `directories` and
-  `serialport` dependencies for its user cache and direct USB operation; that separate graph is
-  audited on every published operating system target.
+  graphs. The standalone hardware flasher and the Controller desktop crate intentionally carry
+  exact-scoped `directories`/`option-ext` and `serialport` dependencies for user cache and direct
+  USB operation; those separate graphs are audited on every published operating system target.
 - Linux does not instantiate tray-icon's GTK3/GLib path for either `prnsd` or the Hopspot desktop
   face. Both use the blocking StatusNotifier backend in `ksni 0.3.6`; tray-icon remains
   target-scoped to macOS and Windows.
 
 The allowlist in `deny.toml` is a permissive-by-default policy: every unlisted expression fails.
 GPL, LGPL, AGPL, and unknown licenses are not accepted. Package-scoped additions are `ksni 0.3.6`
-under Unlicense, `nrf-softdevice-s140 0.1.2` under the hash-pinned Nordic terms, and the exact
+under Unlicense, `nrf-softdevice-s140 0.1.2` under the hash-pinned Nordic terms, the exact
 `serialport 4.9.0` transport required by the mandated `espflash 4.5.0` library under file-level
-MPL-2.0. That narrow hardware boundary is shipped with its source/license notice; MPL is not
-accepted generally. The SoftDevice source remains restricted to revision
-`47d6121c6e823120e8b883a7ac75f44ce7daa3aa`.
+MPL-2.0, and the exact Servo CSS crates (`cssparser 0.29.6`, `cssparser-macros 0.6.1`,
+`dtoa-short 0.3.5`, `selectors 0.24.0`) pulled by the Controller desktop wry stack. Those
+narrow boundaries are shipped with their source/license notices; MPL is not accepted generally.
+The SoftDevice source remains restricted to revision `47d6121c6e823120e8b883a7ac75f44ce7daa3aa`.
 
 ## Unsafe enforcement
 
@@ -52,6 +53,8 @@ one of these reviewed boundaries:
   initialization that keeps the large engine and node values off constrained embedded stacks.
 - `prns-ffi`: Objective-C, IOKit, WinRT, SetupAPI, and Windows COM handles.
 - `personal-hopspot-android`: JNI pointers and Java-owned buffers.
+- `personal-hopspot-remote-control-desktop`: JNI pointers, Java-owned buffers, and POSIX
+  `localtime_r` for local announce timestamps.
 - `personal-hopspot-ios`: the exported C ABI and caller-owned framebuffer.
 - `t-echo`: SoftDevice SVCs and the fixed L2CAP packet pool.
 - `personal-hopspot-esp32`: ROM calls, reserved-memory registration, and persistent RTC state.
