@@ -2182,6 +2182,7 @@ impl RemoteControlBackend {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn refresh_build_version(
         &self,
         target_id: &str,
@@ -2210,6 +2211,7 @@ impl RemoteControlBackend {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn refresh_battery(&self, target_id: &str) -> Result<Option<String>, BackendError> {
         if !self.is_monitoring_target(target_id) {
             return Ok(self.session()?.cached_battery(target_id));
@@ -4225,6 +4227,7 @@ impl ControllerSession {
             .remove(target_id);
     }
 
+    #[allow(dead_code)]
     fn battery_needs_refresh(&self, target_id: &str) -> bool {
         const BATTERY_REFRESH: Duration = Duration::from_secs(10);
         match self
@@ -8462,7 +8465,7 @@ mod tests {
     fn remote_ble_auto_title_ignores_generic_card_names_and_takes_the_identity_prefix() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::BluetoothAuto, b"ble");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("bluetooth-auto");
+        let _ = card.set_name("bluetooth-auto");
         let mut entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
@@ -8485,7 +8488,7 @@ mod tests {
         assert_ne!(entry.name, "bluetooth-auto");
         apply_bluetooth_auto_identity_title(&mut entry, Some("7a1b"));
         assert_eq!(entry.name, "bluetooth-auto 7a1b");
-        card.set_name("bluetooth-auto 7a1b");
+        let _ = card.set_name("bluetooth-auto 7a1b");
         apply_remote_card(&mut entry, &card);
         apply_bluetooth_auto_identity_title(&mut entry, Some("ffff"));
         assert_eq!(entry.name, "bluetooth-auto 7a1b");
@@ -8497,9 +8500,9 @@ mod tests {
     fn remote_auto_wifi_card_group_becomes_an_ipv6_fact() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::AutoWifi, b"lan");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("auto-wifi");
-        card.set_config("W,field-lab");
-        card.set_group("fe80::aea7:4ff:fee1:4b3c");
+        let _ = card.set_name("auto-wifi");
+        let _ = card.set_config("W,field-lab");
+        let _ = card.set_group("fe80::aea7:4ff:fee1:4b3c");
         let mut entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
@@ -8592,10 +8595,10 @@ mod tests {
     fn remote_interface_entry_uses_card_group_peers_and_config() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::BluetoothAuto, b"ble");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("bluetooth-auto 7a1b");
-        card.set_group("home");
-        card.set_config("BLE supervisor");
-        card.set_failure("radio timeout");
+        let _ = card.set_name("bluetooth-auto 7a1b");
+        let _ = card.set_group("home");
+        let _ = card.set_config("BLE supervisor");
+        let _ = card.set_failure("radio timeout");
         card.destinations = 4;
         let entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
@@ -8663,8 +8666,8 @@ mod tests {
     fn remote_auto_wifi_card_always_lists_rssi() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::AutoWifi, b"wifi");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("auto-wifi");
-        card.set_config("W,field-lab");
+        let _ = card.set_name("auto-wifi");
+        let _ = card.set_config("W,field-lab");
         let without_sample = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
@@ -8684,7 +8687,7 @@ mod tests {
             .iter()
             .any(|fact| { fact.label == "RSSI" && fact.value == "not available" }));
 
-        card.set_config("W,field-lab|R-67").unwrap();
+        let _ = card.set_config("W,field-lab|R-67").unwrap();
         let with_sample = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
@@ -8710,8 +8713,8 @@ mod tests {
         let id = InterfaceId::from_channel_tag(InterfaceKind::LoRa, b"lora");
         let config = personal_rns::interfaces::lora::DEFAULT_915_PROFILE.inventory_config();
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("LoRa");
-        card.set_config(config.as_str());
+        let _ = card.set_name("LoRa");
+        let _ = card.set_config(config.as_str());
         let entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
