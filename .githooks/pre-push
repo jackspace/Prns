@@ -7,6 +7,40 @@
 set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 
+# Drop host env that makes reproducible / package smokes fail even when the
+# tree is fine. Interactive flash setups often export HOPSPOT_WIFI_*; Cursor
+# agent sandboxes often set CARGO_TARGET_DIR outside the repo while npm/wasm
+# scripts still read ./target/...
+scrub_push_environment() {
+    local var
+    for var in \
+        HOPSPOT_WIFI_PASSWORD \
+        HOPSPOT_WIFI_SSID \
+        HOPSPOT_WIFI_SECURITY_PROBE_MODE \
+        HOPSPOT_WIFI_SECURITY_STATION_PROBE \
+        HOPSPOT_TCP_TARGET \
+        WIFI_PASSWORD \
+        WIFI_SSID
+    do
+        if [ -n "${!var-}" ]; then
+            echo "[pre-push] unsetting $var (build-semantic / flash credentials must not leak into gates)"
+            unset "$var"
+        fi
+    done
+
+    if [ -n "${CARGO_TARGET_DIR-}" ]; then
+        case "${CARGO_TARGET_DIR}" in
+            "${repo_root}"/target|"${repo_root}"/target/*) ;;
+            *)
+                echo "[pre-push] unsetting CARGO_TARGET_DIR=${CARGO_TARGET_DIR}"
+                echo "           (outside this repo; wasm/js smokes expect ./target/...)"
+                unset CARGO_TARGET_DIR
+                ;;
+        esac
+    fi
+}
+scrub_push_environment
+
 pushed_tips=()
 pushed_updates=()
 while read -r _local_ref local_sha _remote_ref _remote_sha; do
