@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use personal_rns::interfaces::lora::{
-    Frequency, ModemPreset, PreambleSymbols, RadioProfile, RegulatoryRegion as Region,
-    SubGRegion, TxPower,
+    Frequency, ModemPreset, PreambleSymbols, RadioProfile, RegulatoryRegion as Region, SubGRegion,
+    TxPower,
 };
 use personal_rns::interfaces::InterfaceMode;
 use personal_rns::remote_control::parse_wifi_station_ssid;
@@ -597,7 +597,9 @@ mod tests {
 
     #[test]
     fn lora_tune_edits_are_dirty_until_they_match_the_saved_profile() {
-        use personal_rns::interfaces::lora::{ModemPreset, RegulatoryRegion as Region, DEFAULT_915_PROFILE};
+        use personal_rns::interfaces::lora::{
+            ModemPreset, RegulatoryRegion as Region, DEFAULT_915_PROFILE,
+        };
 
         let mut saved = entry(InterfaceMode::Full);
         saved.kind = "lora".to_string();

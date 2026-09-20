@@ -2380,8 +2380,7 @@ error: could not compile `personal-hopspot-esp32` (lib) due to 1 previous error
     fn portable_win_linux_sidecar_is_beside_the_exe() {
         // Use forward-slash layout paths so the test is host-OS independent;
         // packaging places hopspot-flash next to the Controller binary.
-        let win_exe =
-            Path::new("/opt/PRNS-Controller/personal-hopspot-remote-control-desktop.exe");
+        let win_exe = Path::new("/opt/PRNS-Controller/personal-hopspot-remote-control-desktop.exe");
         let win_candidates = sidecar_candidates_for_exe(win_exe);
         assert!(
             win_candidates.iter().any(|path| {
