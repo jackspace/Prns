@@ -339,6 +339,32 @@ impl PrnsNodeHandle {
         RemoteControlModeOutcome::Applied
     }
 
+    #[must_use]
+    pub fn set_network_transport(
+        &self,
+        transport: crate::remote_control::RemoteControlNetworkTransport,
+    ) -> crate::remote_control::RemoteControlNetworkTransportOutcome {
+        let (reply, _rx) = oneshot::channel();
+        if self
+            .commands
+            .send(HostCommand::SetNetworkTransport { transport, reply })
+            .is_err()
+        {
+            return crate::remote_control::RemoteControlNetworkTransportOutcome::Failed;
+        }
+        crate::remote_control::RemoteControlNetworkTransportOutcome::Applied
+    }
+
+    pub async fn describe_network_transport(
+        &self,
+    ) -> Option<crate::remote_control::RemoteControlNetworkTransport> {
+        let (reply, response) = oneshot::channel();
+        self.commands
+            .send(HostCommand::DescribeNetworkTransport { reply })
+            .ok()?;
+        response.await.ok()
+    }
+
     /// Every interface attached through this handle, as a complete [`InterfaceSnapshot`]: live vitals read at call time joined with the engine counts and fleet position. The raw fleet an inspection face can project for its own presentation, with no app-side bookkeeping.
     #[must_use]
     pub fn interfaces(&self) -> std::vec::Vec<InterfaceSnapshot> {

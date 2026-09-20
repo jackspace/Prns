@@ -93,8 +93,8 @@ pub use reaction::{
 };
 pub use registration::{
     PersistedRoutePreflightError, PersistedRouteSignaturePending, PersistedRouteVerificationError,
-    RouteSeedOutcome, SetTransportIdentityError, UnregisterDestinationOutcome,
-    VerifiedPersistedRoute,
+    RouteSeedOutcome, SetNetworkTransportError, SetTransportIdentityError,
+    UnregisterDestinationOutcome, VerifiedPersistedRoute,
 };
 pub(crate) use remote_control::RemoteControlControllerIdentityConfiguration;
 pub use remote_control::{
@@ -110,7 +110,7 @@ pub use remote_control_pairing::{
 pub(crate) use settlement::settle;
 pub use state::{
     EngineProtocolPolicy, EngineState, LinkMtuDiscovery, LocalHopCountOverride,
-    LocalOriginHopCount, ProofForm, RecursivePathRequestDefault,
+    LocalOriginHopCount, NetworkTransport, ProofForm, RecursivePathRequestDefault,
 };
 pub use tunnel::{
     TunnelSynthesizeSignCompleted, TunnelSynthesizeSignOwed, WriteTunnelSynthesizeError,

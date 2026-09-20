@@ -6,14 +6,14 @@ use personal_rns::interfaces::{
     DiscoveryGroupSet, InterfaceId, InterfaceKind, InterfaceSnapshot, Membership,
 };
 use personal_rns::remote_control::{
-    wifi_station_inventory_config, RemoteControlBuildVersion, RemoteControlBuildVersionLabelError,
-    RemoteControlInterfaceCard, RemoteControlInterfaceCardError,
-    RemoteControlInterfaceConfigOutcome, RemoteControlInterfaceContinuation,
-    RemoteControlInterfaceCursor, RemoteControlInterfaceEntry, RemoteControlInterfaceInventory,
-    RemoteControlInterfaceInventoryError, RemoteControlInterfacePage, RemoteControlInterfacePeer,
-    RemoteControlInterfacePeerPage, RemoteControlInterfacePeersOutcome,
-    RemoteControlPeerContinuation, RemoteControlPeerCursor, RemoteControlPeerPage,
-    RemoteControlResponse, REMOTE_CONTROL_INTERFACE_INVENTORY_CAP,
+    wifi_station_inventory_config_with_rssi, RemoteControlBuildVersion,
+    RemoteControlBuildVersionLabelError, RemoteControlInterfaceCard,
+    RemoteControlInterfaceCardError, RemoteControlInterfaceConfigOutcome,
+    RemoteControlInterfaceContinuation, RemoteControlInterfaceCursor, RemoteControlInterfaceEntry,
+    RemoteControlInterfaceInventory, RemoteControlInterfaceInventoryError,
+    RemoteControlInterfacePage, RemoteControlInterfacePeer, RemoteControlInterfacePeerPage,
+    RemoteControlInterfacePeersOutcome, RemoteControlPeerContinuation, RemoteControlPeerCursor,
+    RemoteControlPeerPage, RemoteControlResponse, REMOTE_CONTROL_INTERFACE_INVENTORY_CAP,
     REMOTE_CONTROL_INTERFACE_PEER_CAP,
 };
 use prns_core::engine::MAX_RESPOND_DATA_LEN;
@@ -181,7 +181,13 @@ pub fn decorate_hopspot_remote_control_card(
         }
     }
     if kind == InterfaceKind::AutoWifi {
-        let config = wifi_station_inventory_config(wifi_ssid.unwrap_or(""))
+        let rssi_dbm = match snapshot.radio {
+            personal_rns::interfaces::RadioIndication::Wifi(
+                personal_rns::interfaces::WifiIndication::Rssi(rssi),
+            ) => Some(rssi.get()),
+            _ => None,
+        };
+        let config = wifi_station_inventory_config_with_rssi(wifi_ssid.unwrap_or(""), rssi_dbm)
             .map_err(|_| RemoteControlInterfaceCardError::ConfigTooLong)?;
         card.set_config(config.as_str())?;
     }
@@ -424,6 +430,31 @@ mod tests {
         assert_eq!(card.group.as_str(), "reticulum");
         assert_eq!(card.config.as_str(), "W,field-lab");
         assert!(!card.config.as_str().contains("secret"));
+
+        let mut with_rssi = snapshot(InterfaceKind::AutoWifi);
+        with_rssi.id = supervisor_id;
+        with_rssi.radio = RadioIndication::Wifi(personal_rns::interfaces::WifiIndication::Rssi(
+            personal_rns::interfaces::RssiDbm::new(-67),
+        ));
+        let Ok(RemoteControlInterfaceConfigOutcome::Card(card)) =
+            remote_control_interface_config_from_snapshots(
+                &[with_rssi],
+                supervisor_id,
+                |snapshot, card| {
+                    decorate_hopspot_remote_control_card(
+                        snapshot,
+                        card,
+                        None,
+                        None,
+                        Some("field-lab"),
+                        None,
+                    )
+                },
+            )
+        else {
+            panic!("Auto Wi-Fi supervisor should return a config card with RSSI");
+        };
+        assert_eq!(card.config.as_str(), "W,field-lab|R-67");
     }
 
     #[test]

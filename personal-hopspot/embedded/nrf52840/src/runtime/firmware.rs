@@ -534,6 +534,9 @@ pub async fn run(spawner: Spawner) -> ! {
                     let (token, command) = pending.into_parts();
                     let result = execute_hopspot_command!(snapshots, battery, command);
                     REMOTE_CONTROL_COMMANDS.complete(token, result);
+                    hopspot::apply_pending_network_transport(|cmd| {
+                        let _ = ui_handle.issue(cmd);
+                    });
                     refresh_urgency = hopspot::display::PresentationUrgency::Immediate;
                 }
                 Either5::First(first_event) => {

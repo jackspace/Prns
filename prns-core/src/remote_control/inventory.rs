@@ -1,5 +1,7 @@
 //! Compact interface inventory carried by Remote Control InventoryInterfaces responses.
 
+use core::fmt::Write;
+
 use super::{
     RemoteControlControllerAuthority, RemoteControlControllerContinuation,
     RemoteControlControllerCursor, RemoteControlControllerGrant, RemoteControlControllerGrantTable,
@@ -35,6 +37,7 @@ pub const REMOTE_CONTROL_BUILD_VERSION_CAP: usize = 48;
 pub const REMOTE_CONTROL_WIFI_SSID_CAP: usize = 32;
 pub const REMOTE_CONTROL_WIFI_PASSWORD_CAP: usize = 64;
 pub const REMOTE_CONTROL_WIFI_STATION_INVENTORY_PREFIX: &str = "W,";
+pub const REMOTE_CONTROL_WIFI_STATION_RSSI_MARKER: &str = "|R";
 const _: () = assert!(
     REMOTE_CONTROL_WIFI_STATION_INVENTORY_PREFIX.len() + REMOTE_CONTROL_WIFI_SSID_CAP
         <= REMOTE_CONTROL_INTERFACE_CONFIG_CAP
@@ -761,6 +764,62 @@ impl RemoteControlModeOutcome {
 prns_macros::iterable_enum! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[repr(u8)]
+    pub enum RemoteControlNetworkTransport {
+        Disabled = 0x00,
+        Enabled = 0x01,
+    }
+}
+
+impl RemoteControlNetworkTransport {
+    pub const ENCODED_LEN: usize = 1;
+
+    #[must_use]
+    pub const fn wire_value(self) -> u8 {
+        self as u8
+    }
+
+    #[must_use]
+    pub fn from_wire(value: u8) -> Option<Self> {
+        match value {
+            0x00 => Some(Self::Disabled),
+            0x01 => Some(Self::Enabled),
+            _ => None,
+        }
+    }
+}
+
+prns_macros::iterable_enum! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum RemoteControlNetworkTransportOutcome {
+        Applied = 0x01,
+        Unidentified = 0x02,
+        Failed = 0x03,
+    }
+}
+
+impl RemoteControlNetworkTransportOutcome {
+    pub const ENCODED_LEN: usize = 1;
+
+    #[must_use]
+    pub const fn wire_value(self) -> u8 {
+        self as u8
+    }
+
+    #[must_use]
+    pub fn from_wire(value: u8) -> Option<Self> {
+        match value {
+            0x01 => Some(Self::Applied),
+            0x02 => Some(Self::Unidentified),
+            0x03 => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
+prns_macros::iterable_enum! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(u8)]
     pub enum RemoteControlGroupOutcome {
         Applied = 0x01,
         UnknownInterface = 0x02,
@@ -1204,6 +1263,16 @@ pub fn wifi_station_inventory_config(
     heapless::String<REMOTE_CONTROL_INTERFACE_CONFIG_CAP>,
     RemoteControlWifiStationInventoryConfigError,
 > {
+    wifi_station_inventory_config_with_rssi(ssid, None)
+}
+
+pub fn wifi_station_inventory_config_with_rssi(
+    ssid: &str,
+    rssi_dbm: Option<i16>,
+) -> Result<
+    heapless::String<REMOTE_CONTROL_INTERFACE_CONFIG_CAP>,
+    RemoteControlWifiStationInventoryConfigError,
+> {
     if ssid.len() > REMOTE_CONTROL_WIFI_SSID_CAP {
         return Err(RemoteControlWifiStationInventoryConfigError::SsidTooLong);
     }
@@ -1214,12 +1283,35 @@ pub fn wifi_station_inventory_config(
     config
         .push_str(ssid)
         .map_err(|_| RemoteControlWifiStationInventoryConfigError::SsidTooLong)?;
+    if let Some(rssi_dbm) = rssi_dbm {
+        let mut marker = heapless::String::<16>::new();
+        marker
+            .push_str(REMOTE_CONTROL_WIFI_STATION_RSSI_MARKER)
+            .map_err(|_| RemoteControlWifiStationInventoryConfigError::SsidTooLong)?;
+        write!(&mut marker, "{rssi_dbm}")
+            .map_err(|_| RemoteControlWifiStationInventoryConfigError::SsidTooLong)?;
+        config
+            .push_str(marker.as_str())
+            .map_err(|_| RemoteControlWifiStationInventoryConfigError::SsidTooLong)?;
+    }
     Ok(config)
 }
 
 #[must_use]
 pub fn parse_wifi_station_ssid(config: &str) -> Option<&str> {
-    config.strip_prefix(REMOTE_CONTROL_WIFI_STATION_INVENTORY_PREFIX)
+    let rest = config.strip_prefix(REMOTE_CONTROL_WIFI_STATION_INVENTORY_PREFIX)?;
+    Some(
+        rest.split_once(REMOTE_CONTROL_WIFI_STATION_RSSI_MARKER)
+            .map(|(ssid, _)| ssid)
+            .unwrap_or(rest),
+    )
+}
+
+#[must_use]
+pub fn parse_wifi_station_rssi_dbm(config: &str) -> Option<i16> {
+    let rest = config.strip_prefix(REMOTE_CONTROL_WIFI_STATION_INVENTORY_PREFIX)?;
+    let (_, rssi) = rest.split_once(REMOTE_CONTROL_WIFI_STATION_RSSI_MARKER)?;
+    rssi.parse().ok()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -6,10 +6,11 @@ use crate::interfaces::InterfaceId;
 use crate::routing::links::LinkId;
 use crate::runtime::{
     CloseRemoteControlTargetOutcome, ConnectRemoteControlTargetError, RemoteControlAnnounceSelf,
-    RemoteControlDescribe, RemoteControlDescribeBuild, RemoteControlDescribePower,
-    RemoteControlInventoryInterfaces, RemoteControlSleepRadios, RemoteControlTargetConnection,
-    RemoteControlTargetConnectionControl, RemoteControlTargetConnectionTransport,
-    RemoteControlTargetOperationError, RemoteControlWakeRadios, SendError,
+    RemoteControlDescribe, RemoteControlDescribeBuild, RemoteControlDescribeNetworkTransport,
+    RemoteControlDescribePower, RemoteControlInventoryInterfaces, RemoteControlSleepRadios,
+    RemoteControlTargetConnection, RemoteControlTargetConnectionControl,
+    RemoteControlTargetConnectionTransport, RemoteControlTargetOperationError,
+    RemoteControlWakeRadios, SendError,
 };
 use crate::units::RttMillis;
 use crate::wire::DestinationHash;
@@ -24,11 +25,12 @@ use prns_core::remote_control::{
     RemoteControlGnssPower, RemoteControlGroupOutcome, RemoteControlInterfaceConfigOutcome,
     RemoteControlInterfaceGroup, RemoteControlInterfaceInventory, RemoteControlInterfacePage,
     RemoteControlInterfacePeersOutcome, RemoteControlInterfacePower, RemoteControlLoRaOutcome,
-    RemoteControlLoRaProfile, RemoteControlModeOutcome, RemoteControlPeerPage,
-    RemoteControlPowerOutcome, RemoteControlRequestKind, RemoteControlRequestSet,
-    RemoteControlRevokeControllerOutcome, RemoteControlSleepOutcome, RemoteControlStationUplink,
-    RemoteControlSystemPower, RemoteControlWifiCredentialRevision, RemoteControlWifiStageOutcome,
-    RemoteControlWifiStation, RemoteControlWifiStationOutcome, RemoteControlWifiTransactionStatus,
+    RemoteControlLoRaProfile, RemoteControlModeOutcome, RemoteControlNetworkTransport,
+    RemoteControlNetworkTransportOutcome, RemoteControlPeerPage, RemoteControlPowerOutcome,
+    RemoteControlRequestKind, RemoteControlRequestSet, RemoteControlRevokeControllerOutcome,
+    RemoteControlSleepOutcome, RemoteControlStationUplink, RemoteControlSystemPower,
+    RemoteControlWifiCredentialRevision, RemoteControlWifiStageOutcome, RemoteControlWifiStation,
+    RemoteControlWifiStationOutcome, RemoteControlWifiTransactionStatus,
 };
 
 use super::{PrnsNodeHandle, RemoteControlHandle};
@@ -227,6 +229,30 @@ impl<
             .admit(RemoteControlDescribePower::REQUEST.kind())?;
         self.remote_control
             .describe_power()
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn describe_network_transport(
+        &self,
+    ) -> Result<(RemoteControlNetworkTransport, RttMillis), RemoteControlTargetOperationError> {
+        self.connection
+            .admit(RemoteControlDescribeNetworkTransport::REQUEST.kind())?;
+        self.remote_control
+            .describe_network_transport()
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn set_network_transport(
+        &self,
+        transport: RemoteControlNetworkTransport,
+    ) -> Result<(RemoteControlNetworkTransportOutcome, RttMillis), RemoteControlTargetOperationError>
+    {
+        self.connection
+            .admit(RemoteControlRequestKind::SetNetworkTransport)?;
+        self.remote_control
+            .set_network_transport(transport)
             .await
             .map_err(Into::into)
     }

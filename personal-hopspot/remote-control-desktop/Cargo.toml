@@ -31,8 +31,11 @@ prns-core = { path = "../../prns-core", default-features = false }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 getrandom = "0.2"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serialport = { version = "4.7", default-features = false }
+rfd = "0.17"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 personal-rns = { path = "../../personal-rns", default-features = false, features = ["tokio-host", "tcp", "serial", "usb", "wifi-auto-apple", "shared-instance", "bluetooth-auto", "log", "tracing", "parallel-persistence", "parallel-resource-hash"] }
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "registry"] }

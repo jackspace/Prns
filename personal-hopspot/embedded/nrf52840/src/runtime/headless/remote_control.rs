@@ -107,6 +107,8 @@ pub(super) fn capabilities() -> RemoteControlCapabilities {
         RemoteControlRequestKind::SetInterfaceLoRaProfile,
         RemoteControlRequestKind::DescribeBuild,
         RemoteControlRequestKind::DescribePower,
+        RemoteControlRequestKind::DescribeNetworkTransport,
+        RemoteControlRequestKind::SetNetworkTransport,
         RemoteControlRequestKind::SetSystemPower,
         RemoteControlRequestKind::SetDisplayVisibility,
         RemoteControlRequestKind::SetDisplayAutoOff,
@@ -262,6 +264,16 @@ pub(super) async fn execute<D: ImmediateDisplayDevice>(
         )),
         RemoteControlHostCommand::DescribePower => {
             Ok(RemoteControlHostResponse::DescribePower(context.power))
+        }
+        RemoteControlHostCommand::DescribeNetworkTransport => {
+            Ok(RemoteControlHostResponse::DescribeNetworkTransport(
+                hopspot::NETWORK_TRANSPORT.current(),
+            ))
+        }
+        RemoteControlHostCommand::SetNetworkTransport { transport } => {
+            Ok(RemoteControlHostResponse::SetNetworkTransport(
+                hopspot::NETWORK_TRANSPORT.set(transport),
+            ))
         }
         RemoteControlHostCommand::SetSystemPower { power } => {
             let desired_awake = power == RemoteControlSystemPower::Awake;

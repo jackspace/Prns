@@ -31,7 +31,7 @@ use crate::boards::selected as board;
 
 #[cfg(feature = "board-mesh-tower-v2")]
 use super::bluetooth::{BLE_SHARED, BLE_SUPERVISOR_ID, MEMBERS};
-use super::{INTERFACE_STORE, REMOTE_CONTROL_COMMANDS};
+use super::{COMMANDS, COMPLETION, INTERFACE_STORE, REMOTE_CONTROL_COMMANDS};
 
 const RESPONSE_GRACE_PERIOD: Duration = Duration::from_millis(250);
 const LORA_ENABLED: u8 = 1 << 0;
@@ -84,6 +84,8 @@ pub(super) fn capabilities() -> RemoteControlCapabilities {
         RemoteControlRequestKind::InventoryInterfaceConfig,
         RemoteControlRequestKind::SetInterfaceLoRaProfile,
         RemoteControlRequestKind::DescribeBuild,
+        RemoteControlRequestKind::DescribeNetworkTransport,
+        RemoteControlRequestKind::SetNetworkTransport,
         RemoteControlRequestKind::SetSystemPower,
         RemoteControlRequestKind::InventoryControllers,
         RemoteControlRequestKind::AuthorizeController,
@@ -166,6 +168,10 @@ pub(super) async fn run_headless(
             Err(error) => Err(error),
         };
         REMOTE_CONTROL_COMMANDS.complete(token, result);
+        hopspot::apply_pending_network_transport(|cmd| {
+            let _ = personal_rns::runtime::PrnsNodeHandle::new(COMMANDS.sender(), &COMPLETION)
+                .issue(cmd);
+        });
     }
 }
 
@@ -316,6 +322,16 @@ async fn execute(
             hopspot::hopspot_remote_control_build_version()
                 .map_err(|_| RemoteControlHostCommandError::ApplyFailed)?,
         )),
+        RemoteControlHostCommand::DescribeNetworkTransport => {
+            Ok(RemoteControlHostResponse::DescribeNetworkTransport(
+                hopspot::NETWORK_TRANSPORT.current(),
+            ))
+        }
+        RemoteControlHostCommand::SetNetworkTransport { transport } => {
+            Ok(RemoteControlHostResponse::SetNetworkTransport(
+                hopspot::NETWORK_TRANSPORT.set(transport),
+            ))
+        }
         RemoteControlHostCommand::SetSystemPower { power } => {
             let desired_awake = power == RemoteControlSystemPower::Awake;
             let outcome = if desired_awake && cancel_pending_sleep(context.scheduled_effect) {

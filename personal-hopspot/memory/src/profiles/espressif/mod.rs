@@ -85,7 +85,7 @@ const fn esp32s3_spaces(
         AddressSpace {
             id: RECLAIMED_RAM,
             kind: AddressSpaceKind::ReclaimedRam,
-            geometry: AddressSpaceGeometry::FixedCapacity { bytes: 72 * KIB },
+            geometry: AddressSpaceGeometry::FixedCapacity { bytes: 56 * KIB },
             backing_store: RECLAIMED_RAM_BACKING,
             backing_offset: 0,
         },
@@ -385,7 +385,7 @@ const S3_RUNTIME_RESERVATIONS: [RuntimeReservation; 4] = [
     RuntimeReservation {
         id: ReservationId("reclaimed-heap"),
         address_space: RECLAIMED_RAM,
-        bytes: 72 * KIB,
+        bytes: 56 * KIB,
         accounting: ReservationAccounting::SharedPool {
             pool: ReservationPoolId("reclaimed-heap"),
             charge: ReservationCharge::IncludedInStaticImage,

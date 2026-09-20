@@ -10,11 +10,11 @@ use super::inventory::{
     RemoteControlGroupOutcome, RemoteControlInterfaceConfigOutcome, RemoteControlInterfaceGroup,
     RemoteControlInterfaceInventory, RemoteControlInterfacePeersOutcome,
     RemoteControlInterfacePower, RemoteControlLoRaOutcome, RemoteControlLoRaProfile,
-    RemoteControlModeOutcome, RemoteControlPowerOutcome, RemoteControlRevokeControllerOutcome,
-    RemoteControlSleepOutcome, RemoteControlWifiStation, RemoteControlWifiStationOutcome,
-    REMOTE_CONTROL_BUILD_VERSION_CAP, REMOTE_CONTROL_INTERFACE_CONFIG_CAP,
-    REMOTE_CONTROL_INTERFACE_ENTRY_ENCODED_LEN, REMOTE_CONTROL_INTERFACE_GROUP_CAP,
-    REMOTE_CONTROL_INTERFACE_INVENTORY_CAP,
+    RemoteControlModeOutcome, RemoteControlNetworkTransport, RemoteControlNetworkTransportOutcome,
+    RemoteControlPowerOutcome, RemoteControlRevokeControllerOutcome, RemoteControlSleepOutcome,
+    RemoteControlWifiStation, RemoteControlWifiStationOutcome, REMOTE_CONTROL_BUILD_VERSION_CAP,
+    REMOTE_CONTROL_INTERFACE_CONFIG_CAP, REMOTE_CONTROL_INTERFACE_ENTRY_ENCODED_LEN,
+    REMOTE_CONTROL_INTERFACE_GROUP_CAP, REMOTE_CONTROL_INTERFACE_INVENTORY_CAP,
     REMOTE_CONTROL_INTERFACE_INVENTORY_CONTINUATION_MAX_ENCODED_LEN,
     REMOTE_CONTROL_WIFI_PASSWORD_CAP, REMOTE_CONTROL_WIFI_SSID_CAP,
 };
@@ -30,9 +30,9 @@ const MESSAGE_HEADER_ENCODED_LEN: usize = 2;
 const DESCRIPTION_COUNT_ENCODED_LEN: usize = 1;
 const PROTOCOL_ERROR_KIND_ENCODED_LEN: usize = 1;
 const PROTOCOL_ERROR_DETAIL_ENCODED_LEN: usize = 1;
-// V1 request kinds occupy the contiguous wire range 0x01..=0x1e. Unknown values are rejected
-// before a request can enter this typed set, so four bytes represent the complete domain.
-const REQUEST_KIND_BITMAP_LEN: usize = 4;
+// V1 request kinds occupy the contiguous wire range 0x01..=0x20. Unknown values are rejected
+// before a request can enter this typed set, so five bytes represent the complete domain.
+const REQUEST_KIND_BITMAP_LEN: usize = 5;
 
 prns_macros::iterable_enum! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +87,8 @@ prns_macros::iterable_enum! {
         InspectWifiTransaction = 0x1C,
         InventoryInterfaceDiscoveryGroups = 0x1D,
         ReplaceInterfaceDiscoveryGroups = 0x1E,
+        DescribeNetworkTransport = 0x1F,
+        SetNetworkTransport = 0x20,
     }
 }
 
@@ -213,6 +215,14 @@ impl RemoteControlRequestKind {
                     RemoteControlProtocolError::MAX_ENCODED_BODY_LEN,
                 ))
             }
+            Self::DescribeNetworkTransport => MESSAGE_HEADER_ENCODED_LEN.saturating_add(maximum(
+                RemoteControlNetworkTransport::ENCODED_LEN,
+                RemoteControlProtocolError::MAX_ENCODED_BODY_LEN,
+            )),
+            Self::SetNetworkTransport => MESSAGE_HEADER_ENCODED_LEN.saturating_add(maximum(
+                RemoteControlNetworkTransportOutcome::ENCODED_LEN,
+                RemoteControlProtocolError::MAX_ENCODED_BODY_LEN,
+            )),
         }
     }
 }
@@ -263,6 +273,8 @@ prns_macros::iterable_enum! {
         InspectWifiTransaction = 0x1C,
         InventoryInterfaceDiscoveryGroups = 0x1D,
         ReplaceInterfaceDiscoveryGroups = 0x1E,
+        DescribeNetworkTransport = 0x1F,
+        SetNetworkTransport = 0x20,
         ProtocolError = 0xFF,
     }
 }
@@ -421,6 +433,10 @@ pub enum RemoteControlRequest {
         revision: RemoteControlWifiCredentialRevision,
     },
     InspectWifiTransaction,
+    DescribeNetworkTransport,
+    SetNetworkTransport {
+        transport: RemoteControlNetworkTransport,
+    },
 }
 
 impl RemoteControlRequest {
@@ -480,6 +496,8 @@ impl RemoteControlRequest {
             Self::ConfirmWifiCredentials { .. } => RemoteControlRequestKind::ConfirmWifiCredentials,
             Self::CancelWifiCredentials { .. } => RemoteControlRequestKind::CancelWifiCredentials,
             Self::InspectWifiTransaction => RemoteControlRequestKind::InspectWifiTransaction,
+            Self::DescribeNetworkTransport => RemoteControlRequestKind::DescribeNetworkTransport,
+            Self::SetNetworkTransport { .. } => RemoteControlRequestKind::SetNetworkTransport,
         }
     }
 
@@ -492,12 +510,14 @@ impl RemoteControlRequest {
             | Self::DescribePower
             | Self::SleepRadios
             | Self::WakeRadios
-            | Self::InspectWifiTransaction => MESSAGE_HEADER_ENCODED_LEN,
+            | Self::InspectWifiTransaction
+            | Self::DescribeNetworkTransport => MESSAGE_HEADER_ENCODED_LEN,
             Self::SetSystemPower { .. }
             | Self::SetGnssPower { .. }
             | Self::SetDisplayVisibility { .. }
             | Self::SetDisplayAutoOff { .. }
-            | Self::SetEspRadioMode { .. } => MESSAGE_HEADER_ENCODED_LEN.saturating_add(1),
+            | Self::SetEspRadioMode { .. }
+            | Self::SetNetworkTransport { .. } => MESSAGE_HEADER_ENCODED_LEN.saturating_add(1),
             Self::SetStationUplink { .. } => {
                 MESSAGE_HEADER_ENCODED_LEN.saturating_add(INTERFACE_ID_LEN.saturating_add(1))
             }
@@ -599,6 +619,10 @@ impl RemoteControlRequest {
             RemoteControlRequestKind::InspectWifiTransaction if body.is_empty() => {
                 Ok(Self::InspectWifiTransaction)
             }
+            RemoteControlRequestKind::DescribeNetworkTransport if body.is_empty() => {
+                Ok(Self::DescribeNetworkTransport)
+            }
+            RemoteControlRequestKind::SetNetworkTransport => parse_set_network_transport(body),
             RemoteControlRequestKind::SetInterfacePower => parse_set_interface_power(body),
             RemoteControlRequestKind::SetInterfaceMode => parse_set_interface_mode(body),
             RemoteControlRequestKind::SetInterfaceGroup => parse_set_interface_group(body),
@@ -626,7 +650,8 @@ impl RemoteControlRequest {
             | RemoteControlRequestKind::DescribePower
             | RemoteControlRequestKind::SleepRadios
             | RemoteControlRequestKind::WakeRadios
-            | RemoteControlRequestKind::InspectWifiTransaction => {
+            | RemoteControlRequestKind::InspectWifiTransaction
+            | RemoteControlRequestKind::DescribeNetworkTransport => {
                 Err(RemoteControlRequestParseError::Malformed)
             }
         }
@@ -651,8 +676,9 @@ impl RemoteControlRequest {
             | Self::DescribeBuild
             | Self::DescribePower
             | Self::SleepRadios
-            | Self::WakeRadios => {}
-            Self::InspectWifiTransaction => {}
+            | Self::WakeRadios
+            | Self::InspectWifiTransaction
+            | Self::DescribeNetworkTransport => {}
             Self::InventoryInterfaces { page } => page.write_into(body)?,
             Self::InventoryControllers { page } => page.write_into(body)?,
             Self::SetInterfacePower { id, power } => {
@@ -711,6 +737,9 @@ impl RemoteControlRequest {
                 write_interface_id_and_byte(body, *id, uplink.wire_value())?;
             }
             Self::SetEspRadioMode { mode } => write_single_byte(body, mode.wire_value())?,
+            Self::SetNetworkTransport { transport } => {
+                write_single_byte(body, transport.wire_value())?;
+            }
             Self::StageWifiCredentials { station } => write_wifi_station(body, station)?,
             Self::ActivateWifiCredentials { revision }
             | Self::ConfirmWifiCredentials { revision }
@@ -749,6 +778,15 @@ fn parse_set_gnss_power(
     let power = RemoteControlGnssPower::from_wire(value)
         .ok_or(RemoteControlRequestParseError::Malformed)?;
     Ok(RemoteControlRequest::SetGnssPower { power })
+}
+
+fn parse_set_network_transport(
+    body: &[u8],
+) -> Result<RemoteControlRequest, RemoteControlRequestParseError> {
+    let value = parse_single_byte(body)?;
+    let transport = RemoteControlNetworkTransport::from_wire(value)
+        .ok_or(RemoteControlRequestParseError::Malformed)?;
+    Ok(RemoteControlRequest::SetNetworkTransport { transport })
 }
 
 fn parse_set_display_visibility(
@@ -1566,6 +1604,8 @@ pub enum RemoteControlResponse {
     ConfirmWifiCredentials(RemoteControlApplyOutcome),
     CancelWifiCredentials(RemoteControlApplyOutcome),
     InspectWifiTransaction(RemoteControlWifiTransactionStatus),
+    DescribeNetworkTransport(RemoteControlNetworkTransport),
+    SetNetworkTransport(RemoteControlNetworkTransportOutcome),
     ProtocolError(RemoteControlProtocolError),
 }
 
@@ -1652,6 +1692,10 @@ impl RemoteControlResponse {
             Self::ConfirmWifiCredentials(_) => RemoteControlResponseKind::ConfirmWifiCredentials,
             Self::CancelWifiCredentials(_) => RemoteControlResponseKind::CancelWifiCredentials,
             Self::InspectWifiTransaction(_) => RemoteControlResponseKind::InspectWifiTransaction,
+            Self::DescribeNetworkTransport(_) => {
+                RemoteControlResponseKind::DescribeNetworkTransport
+            }
+            Self::SetNetworkTransport(_) => RemoteControlResponseKind::SetNetworkTransport,
             Self::ProtocolError(_) => RemoteControlResponseKind::ProtocolError,
         }
     }
@@ -1692,6 +1736,8 @@ impl RemoteControlResponse {
             | Self::CancelWifiCredentials(_) => RemoteControlApplyOutcome::ENCODED_LEN,
             Self::StageWifiCredentials(outcome) => outcome.encoded_len(),
             Self::InspectWifiTransaction(status) => status.encoded_len(),
+            Self::DescribeNetworkTransport(_) => RemoteControlNetworkTransport::ENCODED_LEN,
+            Self::SetNetworkTransport(_) => RemoteControlNetworkTransportOutcome::ENCODED_LEN,
             Self::ProtocolError(error) => error.encoded_body_len(),
         };
         MESSAGE_HEADER_ENCODED_LEN.saturating_add(body_len)
@@ -1809,6 +1855,12 @@ impl RemoteControlResponse {
             RemoteControlResponseKind::InspectWifiTransaction => {
                 parse_wifi_transaction_status(body).map(Self::InspectWifiTransaction)
             }
+            RemoteControlResponseKind::DescribeNetworkTransport => {
+                parse_network_transport(body).map(Self::DescribeNetworkTransport)
+            }
+            RemoteControlResponseKind::SetNetworkTransport => {
+                parse_network_transport_outcome(body).map(Self::SetNetworkTransport)
+            }
             RemoteControlResponseKind::ProtocolError => {
                 parse_protocol_error(body).map(Self::ProtocolError)
             }
@@ -1866,6 +1918,8 @@ impl RemoteControlResponse {
             | Self::CancelWifiCredentials(outcome) => write_apply_outcome(*outcome, body),
             Self::StageWifiCredentials(outcome) => write_wifi_stage_outcome(*outcome, body),
             Self::InspectWifiTransaction(status) => write_wifi_transaction_status(*status, body),
+            Self::DescribeNetworkTransport(transport) => write_network_transport(*transport, body),
+            Self::SetNetworkTransport(outcome) => write_network_transport_outcome(*outcome, body),
             Self::ProtocolError(error) => write_protocol_error(error, body),
         }
         Ok(encoded_len)
@@ -2156,6 +2210,34 @@ fn parse_apply_outcome(
         .ok_or(RemoteControlResponseParseError::UnknownApplyOutcome { found: *outcome })
 }
 
+fn parse_network_transport(
+    body: &[u8],
+) -> Result<RemoteControlNetworkTransport, RemoteControlResponseParseError> {
+    let [value] = body else {
+        return Err(if body.is_empty() {
+            RemoteControlResponseParseError::Truncated
+        } else {
+            RemoteControlResponseParseError::Malformed
+        });
+    };
+    RemoteControlNetworkTransport::from_wire(*value)
+        .ok_or(RemoteControlResponseParseError::Malformed)
+}
+
+fn parse_network_transport_outcome(
+    body: &[u8],
+) -> Result<RemoteControlNetworkTransportOutcome, RemoteControlResponseParseError> {
+    let [value] = body else {
+        return Err(if body.is_empty() {
+            RemoteControlResponseParseError::Truncated
+        } else {
+            RemoteControlResponseParseError::Malformed
+        });
+    };
+    RemoteControlNetworkTransportOutcome::from_wire(*value)
+        .ok_or(RemoteControlResponseParseError::Malformed)
+}
+
 fn parse_response_wifi_revision(
     body: &[u8],
 ) -> Result<RemoteControlWifiCredentialRevision, RemoteControlResponseParseError> {
@@ -2373,6 +2455,18 @@ fn write_sleep_outcome(outcome: RemoteControlSleepOutcome, body: &mut [u8]) {
 }
 
 fn write_apply_outcome(outcome: RemoteControlApplyOutcome, body: &mut [u8]) {
+    if let Some(out) = body.first_mut() {
+        *out = outcome.wire_value();
+    }
+}
+
+fn write_network_transport(transport: RemoteControlNetworkTransport, body: &mut [u8]) {
+    if let Some(out) = body.first_mut() {
+        *out = transport.wire_value();
+    }
+}
+
+fn write_network_transport_outcome(outcome: RemoteControlNetworkTransportOutcome, body: &mut [u8]) {
     if let Some(out) = body.first_mut() {
         *out = outcome.wire_value();
     }

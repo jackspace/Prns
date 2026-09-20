@@ -169,6 +169,8 @@ pub(super) fn capabilities<B: Esp32S3Board>() -> RemoteControlCapabilities {
         RemoteControlRequestKind::ReplaceInterfaceDiscoveryGroups,
         RemoteControlRequestKind::DescribeBuild,
         RemoteControlRequestKind::DescribePower,
+        RemoteControlRequestKind::DescribeNetworkTransport,
+        RemoteControlRequestKind::SetNetworkTransport,
         RemoteControlRequestKind::SetSystemPower,
         RemoteControlRequestKind::SetStationUplink,
         RemoteControlRequestKind::SetEspRadioMode,
@@ -345,6 +347,25 @@ pub(super) async fn execute<B: Esp32S3Board>(
         )),
         RemoteControlHostCommand::DescribePower => {
             Ok(RemoteControlHostResponse::DescribePower(context.power))
+        }
+        RemoteControlHostCommand::DescribeNetworkTransport => {
+            Ok(RemoteControlHostResponse::DescribeNetworkTransport(
+                screen::NETWORK_TRANSPORT.current(),
+            ))
+        }
+        RemoteControlHostCommand::SetNetworkTransport { transport } => {
+            let outcome = screen::NETWORK_TRANSPORT.set(transport);
+            if let Some(status) = context.tcp_status {
+                match transport {
+                    personal_rns::remote_control::RemoteControlNetworkTransport::Enabled => {
+                        status.enable()
+                    }
+                    personal_rns::remote_control::RemoteControlNetworkTransport::Disabled => {
+                        status.disable()
+                    }
+                }
+            }
+            Ok(RemoteControlHostResponse::SetNetworkTransport(outcome))
         }
         RemoteControlHostCommand::SetSystemPower { power } => {
             let desired_awake = power == RemoteControlSystemPower::Awake;

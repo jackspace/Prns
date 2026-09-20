@@ -64,7 +64,8 @@ impl Settleable for SendGroup {
             | Settlement::ApproveRemoteControlControllerPairing(_)
             | Settlement::RejectRemoteControlControllerPairing(_)
             | Settlement::RemoteControlControllerPairingRequest(_)
-            | Settlement::SettleRemoteControlControllerPairingPersistence(_) => None,
+            | Settlement::SettleRemoteControlControllerPairingPersistence(_)
+            | Settlement::SetNetworkTransport(_) => None,
         }
     }
 }

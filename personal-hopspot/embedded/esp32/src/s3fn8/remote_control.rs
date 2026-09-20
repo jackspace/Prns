@@ -70,6 +70,8 @@ pub(super) fn capabilities() -> RemoteControlCapabilities {
         RemoteControlRequestKind::InventoryInterfaceConfig,
         RemoteControlRequestKind::SetInterfaceLoRaProfile,
         RemoteControlRequestKind::DescribeBuild,
+        RemoteControlRequestKind::DescribeNetworkTransport,
+        RemoteControlRequestKind::SetNetworkTransport,
         RemoteControlRequestKind::SetSystemPower,
         RemoteControlRequestKind::InventoryControllers,
         RemoteControlRequestKind::AuthorizeController,
@@ -137,6 +139,10 @@ pub(super) async fn run(
             Err(error) => Err(error),
         };
         REMOTE_CONTROL_COMMANDS.complete(token, result);
+        hopspot::apply_pending_network_transport(|cmd| {
+            let _ = personal_rns::runtime::PrnsNodeHandle::new(COMMANDS.sender(), &COMPLETION)
+                .issue(cmd);
+        });
     }
 }
 
@@ -276,6 +282,16 @@ async fn execute(
             hopspot::hopspot_remote_control_build_version()
                 .map_err(|_| RemoteControlHostCommandError::ApplyFailed)?,
         )),
+        RemoteControlHostCommand::DescribeNetworkTransport => {
+            Ok(RemoteControlHostResponse::DescribeNetworkTransport(
+                hopspot::NETWORK_TRANSPORT.current(),
+            ))
+        }
+        RemoteControlHostCommand::SetNetworkTransport { transport } => {
+            Ok(RemoteControlHostResponse::SetNetworkTransport(
+                hopspot::NETWORK_TRANSPORT.set(transport),
+            ))
+        }
         RemoteControlHostCommand::SetSystemPower { power } => {
             let desired_awake = power == RemoteControlSystemPower::Awake;
             let outcome = if desired_awake && cancel_pending_sleep(context.scheduled_effect) {

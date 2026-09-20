@@ -273,6 +273,9 @@ pub(super) fn face(input: FaceInput) -> impl Future {
                         execute_hopspot_command!(snapshots, battery_state, command)
                     };
                     REMOTE_CONTROL_COMMANDS.complete(token, result);
+                    hopspot::apply_pending_network_transport(|cmd| {
+                        let _ = ui_handle.issue(cmd);
+                    });
                 }
                 Either4::First(event) => {
                     let now_ms = embassy_time::Instant::now().as_millis();

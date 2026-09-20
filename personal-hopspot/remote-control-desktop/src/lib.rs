@@ -6,13 +6,20 @@ mod edits;
 #[cfg(not(target_os = "android"))]
 mod flash;
 mod identity_clone;
+#[cfg(not(target_os = "android"))]
+mod image_catalog;
 mod roster_sync;
+
+/// macOS secondary threads default to 512 KiB. The host node future needs a
+/// main-sized stack or `controller-node` aborts on launch.
+pub(crate) const CONTROLLER_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
 
 pub fn launch_controller() {
     init_controller_logging();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .thread_stack_size(CONTROLLER_THREAD_STACK_BYTES)
         .build()
         .expect("tokio runtime");
     let _enter = runtime.enter();

@@ -20,22 +20,23 @@ use personal_rns::interfaces::bluetooth_auto::{
 };
 use personal_rns::interfaces::lora::{ModemPreset, Modulation, RadioProfile};
 use personal_rns::interfaces::{
-    BluetoothIndication, ConnectionState, InterfaceId, InterfaceKind, InterfaceMode,
-    InterfaceSnapshot, InterfaceStatus, LoRaIndication, Membership, PeerDetails, RadioIndication,
-    RssiDbm, SignalQualityTenthsPercent, SnrQuarterDb, WifiIndication,
+    BluetoothIndication, ConnectionState, DiscoveryGroupSet, InterfaceId, InterfaceKind,
+    InterfaceMode, InterfaceSnapshot, InterfaceStatus, LoRaIndication, Membership, PeerDetails,
+    RadioIndication, RssiDbm, SignalQualityTenthsPercent, SnrQuarterDb, WifiIndication,
 };
 use personal_rns::load_or_create_ble_identity;
 use personal_rns::manifold::tokio::TokioInterfaceStatus;
 use personal_rns::node_introspection::{logical_interface_inventory, FrameAccountingCoverage};
 use personal_rns::prelude::*;
 use personal_rns::remote_control::{
-    parse_controller_public_keys, ReceiveRemoteControlControllerPairingOfferOutcome,
-    RemoteControlAuthorizeControllerOutcome, RemoteControlGroupOutcome, RemoteControlInterfaceCard,
-    RemoteControlInterfaceConfigOutcome, RemoteControlInterfaceEntry, RemoteControlInterfaceGroup,
-    RemoteControlInterfacePeer, RemoteControlInterfacePeerPage, RemoteControlInterfacePeersOutcome,
+    parse_controller_public_keys, parse_wifi_station_rssi_dbm, parse_wifi_station_ssid,
+    ReceiveRemoteControlControllerPairingOfferOutcome, RemoteControlAuthorizeControllerOutcome,
+    RemoteControlGroupOutcome, RemoteControlInterfaceCard, RemoteControlInterfaceConfigOutcome,
+    RemoteControlInterfaceEntry, RemoteControlInterfaceGroup, RemoteControlInterfacePeer,
+    RemoteControlInterfacePeerPage, RemoteControlInterfacePeersOutcome,
     RemoteControlInterfacePower, RemoteControlLoRaOutcome, RemoteControlLoRaProfile,
-    RemoteControlModeOutcome, RemoteControlPairingEndpoint, RemoteControlPairingInvitationCode,
-    RemoteControlPeerContinuation, RemoteControlPeerPage, RemoteControlPowerOutcome,
+    RemoteControlModeOutcome, RemoteControlNetworkTransport, RemoteControlNetworkTransportOutcome,
+    RemoteControlPairingEndpoint, RemoteControlPairingInvitationCode, RemoteControlPowerOutcome,
     RemoteControlRequestKind, RemoteControlRequestSet, RemoteControlRevokeControllerOutcome,
     RemoteControlSleepOutcome, RemoteControlTargetAccess, RemoteControlWifiStation,
     RemoteControlWifiStationOutcome, REMOTE_CONTROL_APPLICATION_ASPECTS,
@@ -69,13 +70,14 @@ use crate::identity_clone::{
 use crate::roster_sync::{
     adopt_sibling, attention_for_target, decode_labels, encode_labels, forget_sibling_locally,
     forget_target_locally, import_seed_labels, load_replica, looking_instance, merge_roster,
-    next_sibling_alias, note_local_label, note_local_upsert, parse_replica_reply,
-    peer_alias_is_syncable, peer_alias_link_is_local_only, peer_alias_value_is_syncable,
-    persist_replica, replica_forgets_target, replica_known_targets, replica_message, replica_path,
-    retract_unsyncable_peer_alias_values, roster_sync_destination_hash, sibling_alias_is_syncable,
-    strip_local_sibling_alias, write_pull, RosterDelta, RosterLabel, RosterLabelKind, RosterShared,
-    RosterSync, TargetAttention, ROSTER_SYNC_APP_NAME, ROSTER_SYNC_ASPECTS,
-    ROSTER_SYNC_REQUEST_ENDPOINT_ID, THIS_CONTROLLER_ALIAS_LINK, THIS_CONTROLLER_PEER_ALIAS,
+    next_sibling_alias, next_target_alias, note_local_label, note_local_upsert,
+    parse_replica_reply, peer_alias_is_syncable, peer_alias_link_is_local_only,
+    peer_alias_value_is_syncable, persist_replica, replica_forgets_target, replica_known_targets,
+    replica_message, replica_path, retract_unsyncable_peer_alias_values,
+    roster_sync_destination_hash, sibling_alias_is_syncable, strip_local_sibling_alias, write_pull,
+    RosterDelta, RosterLabel, RosterLabelKind, RosterShared, RosterSync, TargetAttention,
+    ROSTER_SYNC_APP_NAME, ROSTER_SYNC_ASPECTS, ROSTER_SYNC_REQUEST_ENDPOINT_ID,
+    THIS_CONTROLLER_ALIAS_LINK, THIS_CONTROLLER_PEER_ALIAS,
 };
 
 const IDENTITY_HASH_BYTES: usize = 16;
@@ -132,7 +134,10 @@ pub struct TargetAccess {
     pub path: Option<TargetPath>,
     pub build_version: Option<String>,
     pub battery: Option<String>,
+    pub network_transport: Option<RemoteControlNetworkTransport>,
     pub monitor_remaining_secs: u32,
+    /// Remaining pairing open-window seconds for awaiting advertisements.
+    pub pairing_expires_in_secs: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -296,7 +301,17 @@ pub struct RemoteControlBackend {
 impl RemoteControlBackend {
     pub fn new() -> Self {
         Self {
-            session: ControllerSession::start().map(Arc::new),
+            session: ControllerSession::start().map(|session| {
+                let session = Arc::new(session);
+                let handle = session.handle.clone();
+                let remembered = session.clone();
+                spawn(async move {
+                    if let Some(transport) = handle.describe_network_transport().await {
+                        remembered.set_local_network_transport(transport);
+                    }
+                });
+                session
+            }),
         }
     }
 
@@ -922,6 +937,7 @@ impl RemoteControlBackend {
         for item in &mut items {
             item.build_version = session.cached_build_version(&item.id);
             item.battery = session.cached_battery(&item.id);
+            item.network_transport = session.cached_network_transport(&item.id);
             item.monitor_remaining_secs = self.monitor_remaining_secs(&item.id);
             if session.target_attention(&item.id) == TargetAttention::HeldBySibling {
                 item.status = TargetStatus::Offline;
@@ -962,7 +978,9 @@ impl RemoteControlBackend {
                 path: None,
                 build_version: session.cached_build_version(&id),
                 battery: session.cached_battery(&id),
+                network_transport: session.cached_network_transport(&id),
                 monitor_remaining_secs: 0,
+                pairing_expires_in_secs: None,
                 id,
             });
         }
@@ -991,11 +1009,74 @@ impl RemoteControlBackend {
                 path: announcement.path,
                 build_version: None,
                 battery: None,
+                network_transport: None,
                 monitor_remaining_secs: 0,
+                pairing_expires_in_secs: Some(announcement.expires_in_secs),
                 id: announcement.id,
             });
         }
+        let paired_ids = items
+            .iter()
+            .filter(|item| item.status != TargetStatus::AwaitingPairing)
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>();
+        let assigned =
+            ensure_missing_target_aliases(session, paired_ids.iter().map(String::as_str));
+        for (id, alias) in &assigned {
+            let _ = self.propagate_target_alias_to_peers(id, Some(alias), None);
+        }
         Ok(items)
+    }
+
+    pub fn pairing_expires_in_secs(&self, announcement_id: &str) -> Option<u32> {
+        let session = self.session().ok()?;
+        let mut pairing = session
+            .pairing
+            .lock()
+            .expect("pairing state mutex poisoned");
+        pairing.announcement_expires_in_secs(announcement_id)
+    }
+
+    pub async fn dismiss_pairing_advertisement(
+        &self,
+        announcement_id: &str,
+    ) -> Result<(), BackendError> {
+        let announcement_id = announcement_id.trim();
+        if announcement_id.is_empty() {
+            return Err(BackendError::NoPairingAdvertisement);
+        }
+        let session = self.session()?;
+        // Clear the awaiting card immediately. After Approve the Commit receipt can
+        // sit for ~2 minutes; awaiting engine reject first made Dismiss look dead.
+        let rejection = {
+            let mut pairing = session
+                .pairing
+                .lock()
+                .expect("pairing state mutex poisoned");
+            let rejection = pairing
+                .pending
+                .as_ref()
+                .filter(|_| pairing.active_announcement_id.as_deref() == Some(announcement_id))
+                .map(|pending| pending.rejection);
+            if !pairing.dismiss_operator(announcement_id) {
+                return Err(BackendError::NoPairingAdvertisement);
+            }
+            rejection
+        };
+        self.record_local_label(
+            RosterLabelKind::PairingAdvertDismissed,
+            announcement_id,
+            Some("dismissed"),
+        );
+        if let Some(rejection) = rejection {
+            let handle = session.handle.clone();
+            spawn(async move {
+                let _ = handle
+                    .reject_remote_control_controller_pairing(rejection)
+                    .await;
+            });
+        }
+        Ok(())
     }
 
     pub async fn forget_target(&self, target_id: &str) -> Result<(), BackendError> {
@@ -1016,6 +1097,7 @@ impl RemoteControlBackend {
             .forget_stored(target_id);
         session.forget_build_version(target_id);
         session.forget_battery(target_id);
+        session.forget_network_transport(target_id);
         {
             let mut aliases = session
                 .target_aliases
@@ -1466,6 +1548,10 @@ impl RemoteControlBackend {
         }
         persist_session_replica(session);
         self.refresh_cached_snapshot().await;
+        let assigned = ensure_missing_target_aliases(session, std::iter::once(id.as_str()));
+        for (assigned_id, alias) in &assigned {
+            let _ = self.propagate_target_alias_to_peers(assigned_id, Some(alias), None);
+        }
         spawn({
             let backend = self.clone();
             async move {
@@ -1798,7 +1884,7 @@ impl RemoteControlBackend {
         interface_id: &str,
         group: &str,
     ) -> Result<(), BackendError> {
-        let _id = InterfaceId::new(
+        let id = InterfaceId::new(
             parse_hex::<INTERFACE_ID_BYTES>(interface_id)
                 .map_err(|_| BackendError::InvalidInterfaceId(interface_id.to_string()))?,
         );
@@ -1808,14 +1894,17 @@ impl RemoteControlBackend {
                 detail: "group id must be 1 to 32 UTF-8 bytes".to_string(),
             });
         };
-        // Trunk node handles do not yet expose local group apply; Wi-Fi stays on
-        // the default reticulum group via status APIs at attach time.
-        let _ = group;
-        Err(BackendError::Operation {
-            operation: "set local interface group",
-            detail: "local discovery-group edits are not available in this Controller build"
-                .to_string(),
-        })
+        match self.session()?.local_power.set_group(id, group) {
+            RemoteControlGroupOutcome::Applied => Ok(()),
+            RemoteControlGroupOutcome::UnknownInterface => Err(BackendError::Operation {
+                operation: "set local interface group",
+                detail: "this controller does not know that interface".to_string(),
+            }),
+            RemoteControlGroupOutcome::Failed => Err(BackendError::Operation {
+                operation: "set local interface group",
+                detail: "the controller could not apply the requested group".to_string(),
+            }),
+        }
     }
 
     pub fn set_local_tcp_target(&self, target: &str) -> Result<(), BackendError> {
@@ -2050,11 +2139,11 @@ impl RemoteControlBackend {
             }),
             RemoteControlAuthorizeControllerOutcome::Forbidden => Err(BackendError::Operation {
                 operation: "authorize controller",
-                detail: "this controller is not allowed to add that grant".to_string(),
+                detail: "this controller is not allowed to change the allow-list".to_string(),
             }),
             RemoteControlAuthorizeControllerOutcome::Busy => Err(BackendError::Operation {
                 operation: "authorize controller",
-                detail: "the target is busy; try again".to_string(),
+                detail: "the target is busy applying another allow-list change".to_string(),
             }),
         }
     }
@@ -2088,7 +2177,7 @@ impl RemoteControlBackend {
             }),
             RemoteControlRevokeControllerOutcome::Busy => Err(BackendError::Operation {
                 operation: "revoke controller",
-                detail: "the target is busy; try again".to_string(),
+                detail: "the target is busy applying another allow-list change".to_string(),
             }),
         }
     }
@@ -2241,6 +2330,91 @@ impl RemoteControlBackend {
 
     pub async fn wake(&self, target_id: &str) -> Result<(), BackendError> {
         self.set_radio_sleep(target_id, RadioAction::Wake).await
+    }
+
+    pub async fn reset(&self, target_id: &str) -> Result<(), BackendError> {
+        let _ = target_id;
+        Err(BackendError::Operation {
+            operation: "reset target",
+            detail: "device reset is not available on this trunk build yet".to_string(),
+        })
+    }
+
+    pub fn local_build_version(&self) -> String {
+        env!("CARGO_PKG_VERSION").to_owned()
+    }
+
+    pub fn local_network_transport(&self) -> RemoteControlNetworkTransport {
+        self.session()
+            .map(|session| session.local_network_transport())
+            .unwrap_or(RemoteControlNetworkTransport::Enabled)
+    }
+
+    pub fn set_local_network_transport(
+        &self,
+        transport: RemoteControlNetworkTransport,
+    ) -> Result<(), BackendError> {
+        let session = self.session()?;
+        match session.handle.set_network_transport(transport) {
+            RemoteControlNetworkTransportOutcome::Applied => {
+                session.set_local_network_transport(transport);
+                Ok(())
+            }
+            RemoteControlNetworkTransportOutcome::Unidentified => Err(BackendError::Operation {
+                operation: "set local network transport",
+                detail: "this controller is not identified, so transport cannot be changed"
+                    .to_string(),
+            }),
+            RemoteControlNetworkTransportOutcome::Failed => Err(BackendError::Operation {
+                operation: "set local network transport",
+                detail: "the controller could not apply the requested transport".to_string(),
+            }),
+        }
+    }
+
+    pub async fn describe_network_transport(
+        &self,
+        target_id: &str,
+    ) -> Result<RemoteControlNetworkTransport, BackendError> {
+        let remote = self.connect_target(target_id).await?;
+        let result = remote.describe_network_transport().await;
+        remote.close();
+        let (transport, _) =
+            result.map_err(|error| operation("describe network transport", error))?;
+        self.session()?
+            .remember_network_transport(target_id, transport);
+        Ok(transport)
+    }
+
+    pub async fn set_network_transport(
+        &self,
+        target_id: &str,
+        transport: RemoteControlNetworkTransport,
+    ) -> Result<(), BackendError> {
+        let remote = self.connect_target(target_id).await?;
+        let result = remote.set_network_transport(transport).await;
+        remote.close();
+        let (outcome, _) = result.map_err(|error| operation("set network transport", error))?;
+        match outcome {
+            RemoteControlNetworkTransportOutcome::Applied => {
+                self.session()?
+                    .remember_network_transport(target_id, transport);
+                Ok(())
+            }
+            RemoteControlNetworkTransportOutcome::Unidentified => Err(BackendError::Operation {
+                operation: "set network transport",
+                detail: "the target is not identified, so transport cannot be changed".to_string(),
+            }),
+            RemoteControlNetworkTransportOutcome::Failed => Err(BackendError::Operation {
+                operation: "set network transport",
+                detail: "the target could not apply the requested transport".to_string(),
+            }),
+        }
+    }
+
+    /// Announce this install's roster-sync destination on every started interface.
+    pub async fn announce_this_controller(&self) -> Result<(), BackendError> {
+        self.announce_roster_destination().await
     }
 
     fn session(&self) -> Result<&Arc<ControllerSession>, BackendError> {
@@ -2521,8 +2695,9 @@ impl RemoteControlBackend {
         let mut items = inventory
             .entries()
             .iter()
-            .filter(|entry| operator_interface_kind(entry.kind))
-            .map(|entry| remote_interface_entry(entry, None))
+            .enumerate()
+            .filter(|(_, entry)| operator_interface_kind(entry.kind))
+            .map(|(_, entry)| remote_interface_entry(entry, None))
             .collect::<Vec<_>>();
         for item in items.iter_mut() {
             fetch_interface_config(&remote, item).await;
@@ -2547,6 +2722,15 @@ impl RemoteControlBackend {
             }
         } else {
             eprintln!("inventory describe_power {target_id} failed");
+        }
+        match remote.describe_network_transport().await {
+            Ok((transport, _)) => {
+                self.session()?
+                    .remember_network_transport(target_id, transport);
+            }
+            Err(error) => {
+                eprintln!("inventory describe_network_transport {target_id} failed: {error:?}");
+            }
         }
         for item in items.iter_mut() {
             if !item.shows_peers {
@@ -2623,14 +2807,13 @@ impl RemoteControlBackend {
             .map_err(|error| operation("inventory target interface", error))?;
         self.session()?
             .mark_reachable(target_id, TargetStatus::Online);
-        let Some((index, entry)) = inventory.entries().iter().enumerate().find(|(_, entry)| {
+        let Some((_, entry)) = inventory.entries().iter().enumerate().find(|(_, entry)| {
             operator_interface_kind(entry.kind) && encode_hex(entry.id.as_bytes()) == interface_id
         }) else {
             remote.close();
             return Err(BackendError::InvalidInterfaceId(interface_id.to_string()));
         };
         let mut item = remote_interface_entry(entry, None);
-        let _ = index;
         fetch_interface_config(&remote, &mut item).await;
         if item.shows_peers {
             let Ok(id) = parse_hex::<INTERFACE_ID_BYTES>(&item.id) else {
@@ -2834,7 +3017,7 @@ impl RemoteControlBackend {
                     &entry.snapshot,
                     entry.name.as_deref(),
                     Some(session.ble_identity),
-                    None,
+                    session.local_power.live_group(entry.snapshot.id).as_deref(),
                     entry.ifac.as_ref().map(|ifac| ifac.size.bytes()),
                     local_interface_config(
                         &entry.snapshot,
@@ -3075,6 +3258,7 @@ impl RemoteControlBackend {
                 .forget_stored(&id);
             session.forget_build_version(&id);
             session.forget_battery(&id);
+            session.forget_network_transport(&id);
             remove_alias_map_key(&session.target_aliases, &session.target_aliases_path, &id);
         }
         apply_roster_labels(session, &plan.labels);
@@ -3230,6 +3414,8 @@ struct ControllerSession {
     build_versions: Mutex<HashMap<String, String>>,
     batteries: Mutex<HashMap<String, String>>,
     battery_fetched_at: Mutex<HashMap<String, Instant>>,
+    network_transports: Mutex<HashMap<String, RemoteControlNetworkTransport>>,
+    local_transport: Mutex<RemoteControlNetworkTransport>,
     clone: Arc<Mutex<IdentityCloneShared>>,
     roster: Arc<Mutex<RosterShared>>,
     ble_identity: BleIdentity,
@@ -3359,6 +3545,60 @@ impl LocalInterfacePower {
             }
         }
         keys
+    }
+
+    fn live_group(&self, id: InterfaceId) -> Option<String> {
+        let controls = self
+            .controls
+            .lock()
+            .expect("local interface power mutex poisoned");
+        match controls.get(&id) {
+            Some(LocalPowerControl::Wifi(status)) => status
+                .discovery_groups()
+                .iter()
+                .next()
+                .map(|group| group.as_str().to_string()),
+            Some(LocalPowerControl::Ble(status)) => status
+                .discovery_groups()
+                .iter()
+                .next()
+                .map(|group| group.as_str().to_string()),
+            Some(LocalPowerControl::Tokio(_)) | None => None,
+        }
+    }
+
+    fn set_group(
+        &self,
+        id: InterfaceId,
+        group: RemoteControlInterfaceGroup,
+    ) -> RemoteControlGroupOutcome {
+        let controls = self
+            .controls
+            .lock()
+            .expect("local interface power mutex poisoned");
+        let Some(control) = controls.get(&id) else {
+            return RemoteControlGroupOutcome::UnknownInterface;
+        };
+        let Ok(groups) = DiscoveryGroupSet::singleton(group.into_discovery_group()) else {
+            return RemoteControlGroupOutcome::Failed;
+        };
+        match control {
+            LocalPowerControl::Wifi(status) => {
+                if status.set_group_id(group.into_discovery_group().as_bytes()) {
+                    RemoteControlGroupOutcome::Applied
+                } else {
+                    RemoteControlGroupOutcome::Failed
+                }
+            }
+            LocalPowerControl::Ble(status) => {
+                let status = status.clone();
+                spawn(async move {
+                    let _ = status.replace_discovery_groups(groups).await;
+                });
+                RemoteControlGroupOutcome::Applied
+            }
+            LocalPowerControl::Tokio(_) => RemoteControlGroupOutcome::Failed,
+        }
     }
 }
 
@@ -3662,11 +3902,9 @@ impl ControllerSession {
                         .expires_at()
                         .0
                         .saturating_sub(observation.observed_at().0);
-                    pairing_events
-                        .lock()
-                        .expect("pairing state mutex poisoned")
-                        .announcements
-                        .insert(
+                    let mut pairing = pairing_events.lock().expect("pairing state mutex poisoned");
+                    if !pairing.is_dismissed_session(&id, observation.expires_at()) {
+                        pairing.announcements.insert(
                             id,
                             HeardAnnouncement {
                                 endpoint: observation.endpoint(),
@@ -3678,6 +3916,7 @@ impl ControllerSession {
                                 observed_at: observation.observed_at(),
                             },
                         );
+                    }
                 }
                 PrnsEvent::Message(
                     Message::RemoteControlControllerPairingConfirmationRequired(confirmation),
@@ -3745,6 +3984,12 @@ impl ControllerSession {
                         ble_status.disable();
                     }
                     attach_power.register(LocalPowerControl::Ble(ble_status.clone()));
+                    let apply_group = ble_status.clone();
+                    spawn(async move {
+                        let _ = apply_group
+                            .replace_discovery_groups(DiscoveryGroupSet::reticulum())
+                            .await;
+                    });
                     let _ = attached_ble;
                 }
 
@@ -3840,9 +4085,12 @@ impl ControllerSession {
             })?;
         // node.run() is !Send (local executor). Dioxus spawn polls it on the
         // desktop main thread, and mesh work there starves Start/Stop.
+        // The default thread stack is too small for the LocalSet + mesh
+        // futures on macOS debug builds (controller-node overflows at launch).
         let runtime = tokio::runtime::Handle::current();
         std::thread::Builder::new()
             .name("controller-node".into())
+            .stack_size(crate::CONTROLLER_THREAD_STACK_BYTES)
             .spawn(move || {
                 let local = tokio::task::LocalSet::new();
                 runtime.block_on(local.run_until(async move {
@@ -3882,6 +4130,8 @@ impl ControllerSession {
             build_versions: Mutex::new(HashMap::new()),
             batteries: Mutex::new(HashMap::new()),
             battery_fetched_at: Mutex::new(HashMap::new()),
+            network_transports: Mutex::new(HashMap::new()),
+            local_transport: Mutex::new(RemoteControlNetworkTransport::Enabled),
             clone,
             roster,
             ble_identity,
@@ -3922,6 +4172,39 @@ impl ControllerSession {
             .expect("batteries mutex poisoned")
             .get(target_id)
             .cloned()
+    }
+
+    fn cached_network_transport(&self, target_id: &str) -> Option<RemoteControlNetworkTransport> {
+        self.network_transports.lock().ok()?.get(target_id).copied()
+    }
+
+    fn remember_network_transport(
+        &self,
+        target_id: &str,
+        transport: RemoteControlNetworkTransport,
+    ) {
+        if let Ok(mut transports) = self.network_transports.lock() {
+            transports.insert(target_id.to_string(), transport);
+        }
+    }
+
+    fn forget_network_transport(&self, target_id: &str) {
+        if let Ok(mut transports) = self.network_transports.lock() {
+            transports.remove(target_id);
+        }
+    }
+
+    fn local_network_transport(&self) -> RemoteControlNetworkTransport {
+        self.local_transport
+            .lock()
+            .map(|transport| *transport)
+            .unwrap_or(RemoteControlNetworkTransport::Enabled)
+    }
+
+    fn set_local_network_transport(&self, transport: RemoteControlNetworkTransport) {
+        if let Ok(mut current) = self.local_transport.lock() {
+            *current = transport;
+        }
     }
 
     fn remember_battery(&self, target_id: &str, label: String) {
@@ -4056,6 +4339,10 @@ struct PairingEvents {
     announcements: HashMap<String, HeardAnnouncement>,
     /// Announcement ids kept visible while a pairing attempt is in progress.
     pinned: HashMap<String, HeardAnnouncement>,
+    /// Per-device pairing dest hash → last dismissed open-window `expires_at`.
+    /// Rebroadcasts of that same open stay hidden; a later Pair-again (`expires_at`
+    /// greater than this) is admitted again.
+    dismissed_sessions: HashMap<String, InstantMillis>,
     active_announcement_id: Option<String>,
     pending: Option<PendingPairing>,
     pending_target_id: Option<String>,
@@ -4072,6 +4359,7 @@ impl PairingEvents {
         Self {
             announcements: HashMap::new(),
             pinned: HashMap::new(),
+            dismissed_sessions: HashMap::new(),
             active_announcement_id: None,
             pending: None,
             pending_target_id: None,
@@ -4186,6 +4474,24 @@ impl PairingEvents {
         });
     }
 
+    /// True when this open-window (`expires_at`) was dismissed and has not been
+    /// superseded by a later Pair-again on the same device.
+    fn is_dismissed_session(&self, announcement_id: &str, expires_at: InstantMillis) -> bool {
+        self.dismissed_sessions
+            .get(announcement_id)
+            .is_some_and(|dismissed| expires_at.0 <= dismissed.0)
+    }
+
+    fn remember_dismissed_session(&mut self, announcement_id: &str, expires_at: InstantMillis) {
+        let expires_at = self
+            .dismissed_sessions
+            .get(announcement_id)
+            .map(|previous| InstantMillis(previous.0.max(expires_at.0)))
+            .unwrap_or(expires_at);
+        self.dismissed_sessions
+            .insert(announcement_id.to_owned(), expires_at);
+    }
+
     fn pin_announcement(&mut self, announcement_id: &str) {
         if let Some(announcement) = self.announcements.get(announcement_id).cloned() {
             self.pinned.insert(announcement_id.to_owned(), announcement);
@@ -4199,6 +4505,43 @@ impl PairingEvents {
         if self.active_announcement_id.as_deref() == Some(announcement_id) {
             self.active_announcement_id = None;
         }
+    }
+
+    /// Operator dismiss: drop a heard/pinned advert even mid-attempt, and clear
+    /// local pending state when this row was the active pairing target.
+    /// Suppresses rebroadcasts of this open-window only; a later Pair-again on
+    /// the same device (newer `expires_at`) is shown again.
+    fn dismiss_operator(&mut self, announcement_id: &str) -> bool {
+        let id = announcement_id.trim();
+        if id.is_empty() {
+            return false;
+        }
+        if let Some(expires_at) = self
+            .announcements
+            .get(id)
+            .or_else(|| self.pinned.get(id))
+            .map(|announcement| announcement.expires_at)
+        {
+            self.remember_dismissed_session(id, expires_at);
+        }
+        if self.active_announcement_id.as_deref() == Some(id) {
+            self.pending = None;
+            self.active_announcement_id = None;
+            self.pending_target_id = None;
+            self.pending_announce_name = None;
+        }
+        self.announcements.remove(id);
+        self.pinned.remove(id);
+        true
+    }
+
+    fn announcement_expires_in_secs(&mut self, announcement_id: &str) -> Option<u32> {
+        self.prune_expired();
+        let announcement = self
+            .announcements
+            .get(announcement_id)
+            .or_else(|| self.pinned.get(announcement_id))?;
+        Some(wall_expires_in_secs(announcement.wall_expires))
     }
 
     fn finish_pairing_announcement(&mut self) {
@@ -4216,6 +4559,13 @@ impl PairingEvents {
         }
         if self.active_announcement_id.as_deref() == Some(id) || self.pinned.contains_key(id) {
             return;
+        }
+        if let Some(expires_at) = self
+            .announcements
+            .get(id)
+            .map(|announcement| announcement.expires_at)
+        {
+            self.remember_dismissed_session(id, expires_at);
         }
         self.announcements.remove(id);
     }
@@ -4240,6 +4590,7 @@ impl PairingEvents {
                             announcement.interface,
                             announcement.observed_at,
                         )),
+                        expires_in_secs: wall_expires_in_secs(announcement.wall_expires),
                     },
                 ),
             );
@@ -4278,6 +4629,14 @@ struct AnnouncementSummary {
     id: String,
     name: String,
     path: Option<TargetPath>,
+    expires_in_secs: u32,
+}
+
+fn wall_expires_in_secs(wall_expires: Instant) -> u32 {
+    wall_expires
+        .checked_duration_since(Instant::now())
+        .map(|remaining| u32::try_from(remaining.as_secs()).unwrap_or(u32::MAX))
+        .unwrap_or(0)
 }
 
 struct PendingPairing {
@@ -4486,6 +4845,44 @@ fn ensure_missing_sibling_aliases<'a>(
     persist_session_replica(session);
 }
 
+/// Assign `Alias <n>` to managed nodes that still lack a nickname.
+fn ensure_missing_target_aliases<'a>(
+    session: &ControllerSession,
+    ids: impl IntoIterator<Item = &'a str>,
+) -> Vec<(String, String)> {
+    let mut aliases = session
+        .target_aliases
+        .lock()
+        .expect("target aliases mutex poisoned");
+    let mut assigned = Vec::new();
+    for id in ids {
+        let id = id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        if aliases.get(id).is_some_and(|name| !name.trim().is_empty()) {
+            continue;
+        }
+        let next = next_target_alias(&aliases);
+        aliases.insert(id.to_owned(), next.clone());
+        assigned.push((id.to_owned(), next));
+    }
+    if assigned.is_empty() {
+        return assigned;
+    }
+    persist_target_names(&session.target_aliases_path, &aliases);
+    drop(aliases);
+    if let Ok(mut roster) = session.roster.lock() {
+        let aliases = session
+            .target_aliases
+            .lock()
+            .expect("target aliases mutex poisoned");
+        import_seed_labels(&mut roster.replica, RosterLabelKind::TargetAlias, &aliases);
+    }
+    persist_session_replica(session);
+    assigned
+}
+
 fn remove_alias_map_key(aliases: &Mutex<HashMap<String, String>>, path: &PathBuf, key: &str) {
     let mut aliases = aliases.lock().expect("alias map mutex poisoned");
     if aliases.remove(key).is_some() {
@@ -4692,12 +5089,8 @@ fn controller_data_dir() -> PathBuf {
 fn android_files_dir() -> Option<PathBuf> {
     use jni::objects::{JObject, JString};
     let ctx = ndk_context::android_context();
-    // SAFETY: `ndk_context` returns the process-wide JavaVM pointer installed by the
-    // Android runtime; `from_raw` only wraps that existing handle.
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
     let mut env = vm.attach_current_thread().ok()?;
-    // SAFETY: `ctx.context()` is the JNI local/global Application context for this
-    // process; `from_raw` does not take ownership of a pointer the JVM still owns.
     let context = unsafe { JObject::from_raw(ctx.context().cast()) };
     let file = env
         .call_method(&context, "getFilesDir", "()Ljava/io/File;", &[])
@@ -4835,6 +5228,10 @@ pub fn format_connect_label(remaining_secs: u32) -> String {
     )
 }
 
+pub fn format_pairing_open_label(remaining_secs: u32) -> String {
+    format!("Open {:02}:{:02}", remaining_secs / 60, remaining_secs % 60)
+}
+
 fn load_persisted_target_hashes(persist_dir: &Path) -> Vec<IdentityHash> {
     let store = personal_rns::persistence::FileStore::new(persist_dir.to_path_buf());
     let Ok(Some(len)) = personal_rns::persistence::PersistedStore::stored_len(
@@ -4895,7 +5292,9 @@ fn managed_targets_from_disk(
             path: None,
             build_version: None,
             battery: None,
+            network_transport: None,
             monitor_remaining_secs: 0,
+            pairing_expires_in_secs: None,
             id,
         })
         .collect();
@@ -5193,7 +5592,9 @@ fn local_interface_entry(
                 .map(ToOwned::to_owned)
         })
         .unwrap_or_else(|| format!("{} {}", kind_name, short_id(&id)));
-    let extras = hopspot_extra_facts(detail, kind, drops);
+    let mut extras = hopspot_extra_facts(detail, kind, drops);
+    extend_radio_facts(&mut extras, snapshot.radio);
+    ensure_auto_wifi_rssi_fact(&mut extras, kind);
     InterfaceEntry {
         name: label,
         id,
@@ -5273,16 +5674,9 @@ fn apply_remote_card(entry: &mut InterfaceEntry, card: &RemoteControlInterfaceCa
         .ok()
         .and_then(|bytes| operator_remote_kind(InterfaceId::new(bytes)));
     entry.extras = hopspot_extra_facts(entry.detail.as_deref(), kind, None);
-    if kind == Some(InterfaceKind::AutoWifi) {
-        if let Some(group) = entry.group.take() {
-            if parse_ipv6_fact(&group)
-                .is_some_and(|addr| matches!(addr, IpAddr::V6(v6) if v6.is_unicast_link_local()))
-            {
-                entry.extras.push(interface_fact("IPv6", group));
-            } else {
-                entry.group = Some(group);
-            }
-        }
+    ensure_auto_wifi_rssi_fact(&mut entry.extras, kind);
+    if let Some(ipv6) = take_ipv6_group(&mut entry.group) {
+        entry.extras.push(interface_fact("IPv6", ipv6));
     }
 }
 
@@ -5291,21 +5685,21 @@ async fn fetch_interface_peers(
     id: InterfaceId,
 ) -> Result<Vec<InterfacePeer>, String> {
     let mut peers = Vec::new();
-    let mut page_req = RemoteControlPeerPage::First;
+    let mut page_cursor = personal_rns::remote_control::RemoteControlPeerPage::First;
     loop {
-        let page = fetch_interface_peer_page(remote, id, page_req).await?;
+        let page = fetch_interface_peer_page(remote, id, page_cursor).await?;
+        if page.peers.is_empty() {
+            break;
+        }
         for peer in &page.peers {
             peers.push(interface_peer_from_wire(peer));
         }
-        match page.continuation() {
-            RemoteControlPeerContinuation::Complete => break,
-            RemoteControlPeerContinuation::More(cursor) => {
-                if page.peers.is_empty() {
-                    break;
-                }
-                page_req = RemoteControlPeerPage::After(cursor);
+        page_cursor = match page.continuation() {
+            personal_rns::remote_control::RemoteControlPeerContinuation::Complete => break,
+            personal_rns::remote_control::RemoteControlPeerContinuation::More(cursor) => {
+                personal_rns::remote_control::RemoteControlPeerPage::After(cursor)
             }
-        }
+        };
     }
     Ok(peers)
 }
@@ -5313,7 +5707,7 @@ async fn fetch_interface_peers(
 async fn fetch_interface_peer_page(
     remote: &RemoteControlTargetHandle<'_>,
     id: InterfaceId,
-    page: RemoteControlPeerPage,
+    page: personal_rns::remote_control::RemoteControlPeerPage,
 ) -> Result<RemoteControlInterfacePeerPage, String> {
     let mut last_error = None;
     for _ in 0..2 {
@@ -5357,7 +5751,7 @@ fn remote_interface_entry(
         .filter(|name| !generic_bluetooth_auto_title(name))
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| format!("{} {}", kind, short_id(&id)));
-    let group = card
+    let mut group = card
         .map(|card| card.group.as_str().trim())
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
@@ -5370,7 +5764,11 @@ fn remote_interface_entry(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
     let peers: Vec<InterfacePeer> = Vec::new();
-    let extras = hopspot_extra_facts(detail.as_deref(), Some(entry.kind), None);
+    let mut extras = hopspot_extra_facts(detail.as_deref(), Some(entry.kind), None);
+    ensure_auto_wifi_rssi_fact(&mut extras, Some(entry.kind));
+    if let Some(ipv6) = take_ipv6_group(&mut group) {
+        extras.push(interface_fact("IPv6", ipv6));
+    }
     InterfaceEntry {
         name,
         id,
@@ -5795,6 +6193,14 @@ fn endpoint_matches_wifi_ll_keys(endpoint: &str, keys: &HashSet<String>) -> bool
 fn parse_ipv6_fact(value: &str) -> Option<IpAddr> {
     let host = value.split('%').next()?.trim();
     host.parse::<Ipv6Addr>().ok().map(IpAddr::V6)
+}
+
+fn take_ipv6_group(group: &mut Option<String>) -> Option<String> {
+    let value = group.as_deref()?.trim();
+    if parse_ipv6_fact(value).is_none() {
+        return None;
+    }
+    group.take()
 }
 
 fn remember_target_wifi_ll(session: &ControllerSession, target_id: &str, address: IpAddr) {
@@ -6316,7 +6722,7 @@ pub(crate) fn apply_tcp_target_to_entry(entry: &mut InterfaceEntry, target: &str
 pub(crate) fn apply_wifi_station_to_entry(entry: &mut InterfaceEntry, ssid: &str) {
     let detail = personal_rns::remote_control::wifi_station_inventory_config(ssid)
         .map(|config| config.to_string())
-        .unwrap_or_else(|_| ssid.to_string());
+        .unwrap_or_else(|_| format!("W,{ssid}"));
     let kind = InterfaceKind::ALL
         .into_iter()
         .find(|kind| kind.name() == entry.kind);
@@ -6351,7 +6757,7 @@ fn hopspot_extra_facts(
         if let Some(profile) = RadioProfile::parse_inventory_config(detail) {
             extras.push(interface_fact("Config", "LoRa".to_string()));
             extras.extend(lora_tune_facts(&profile));
-        } else if let Some(ssid) = personal_rns::remote_control::parse_wifi_station_ssid(detail) {
+        } else if let Some(ssid) = parse_wifi_station_ssid(detail) {
             extras.push(interface_fact(
                 "SSID",
                 if ssid.is_empty() {
@@ -6360,6 +6766,11 @@ fn hopspot_extra_facts(
                     ssid.to_string()
                 },
             ));
+            if let Some(rssi) = parse_wifi_station_rssi_dbm(detail) {
+                extras.push(rssi_fact(RssiDbm::new(rssi)));
+            } else if kind == Some(InterfaceKind::AutoWifi) {
+                extras.push(rssi_unavailable_fact());
+            }
         } else {
             for part in detail.split(" · ") {
                 let part = part.trim();
@@ -6470,7 +6881,8 @@ fn activity_connection_code(connection: &str) -> u8 {
 const RSSI_LABEL: &str = "RSSI";
 const SNR_LABEL: &str = "SNR";
 const QUALITY_LABEL: &str = "Quality";
-const SIGNAL_LABEL: &str = "Signal";
+const RSSI_UNAVAILABLE: &str = "not available";
+const RSSI_PENDING: &str = "pending";
 
 pub fn radio_facts(radio: RadioIndication) -> Vec<InterfaceFact> {
     match radio {
@@ -6478,12 +6890,12 @@ pub fn radio_facts(radio: RadioIndication) -> Vec<InterfaceFact> {
         RadioIndication::Bluetooth(BluetoothIndication::Pending)
         | RadioIndication::Wifi(WifiIndication::Pending)
         | RadioIndication::LoRa(LoRaIndication::Pending) => vec![InterfaceFact {
-            label: SIGNAL_LABEL.to_string(),
-            value: "pending".to_string(),
+            label: RSSI_LABEL.to_string(),
+            value: RSSI_PENDING.to_string(),
         }],
         RadioIndication::Wifi(WifiIndication::Unavailable) => vec![InterfaceFact {
-            label: SIGNAL_LABEL.to_string(),
-            value: "not measured on this medium".to_string(),
+            label: RSSI_LABEL.to_string(),
+            value: RSSI_UNAVAILABLE.to_string(),
         }],
         RadioIndication::Bluetooth(BluetoothIndication::Rssi(rssi))
         | RadioIndication::Wifi(WifiIndication::Rssi(rssi)) => vec![rssi_fact(rssi)],
@@ -6506,11 +6918,35 @@ pub fn radio_facts(radio: RadioIndication) -> Vec<InterfaceFact> {
     }
 }
 
+fn rssi_unavailable_fact() -> InterfaceFact {
+    InterfaceFact {
+        label: RSSI_LABEL.to_string(),
+        value: RSSI_UNAVAILABLE.to_string(),
+    }
+}
+
 fn rssi_fact(rssi: RssiDbm) -> InterfaceFact {
     InterfaceFact {
         label: RSSI_LABEL.to_string(),
         value: format!("{} dBm", rssi.get()),
     }
+}
+
+fn extend_radio_facts(extras: &mut Vec<InterfaceFact>, radio: RadioIndication) {
+    if extras.iter().any(|fact| fact.label == RSSI_LABEL) {
+        return;
+    }
+    extras.extend(radio_facts(radio));
+}
+
+fn ensure_auto_wifi_rssi_fact(extras: &mut Vec<InterfaceFact>, kind: Option<InterfaceKind>) {
+    if kind != Some(InterfaceKind::AutoWifi) {
+        return;
+    }
+    if extras.iter().any(|fact| fact.label == RSSI_LABEL) {
+        return;
+    }
+    extras.push(rssi_unavailable_fact());
 }
 
 fn format_snr(snr: SnrQuarterDb) -> String {
@@ -6963,13 +7399,10 @@ fn format_announce_millis(millis: u64) -> String {
 fn local_civil(unix_secs: i64) -> Option<(i32, u32, u32, u32, u32, u32)> {
     let mut tm = std::mem::MaybeUninit::<libc::tm>::uninit();
     let time = libc::time_t::try_from(unix_secs).ok()?;
-    // SAFETY: `tm` is a caller-owned `MaybeUninit` buffer; POSIX `localtime_r` writes
-    // a complete `tm` there or returns null. The pointer is not retained.
     let ptr = unsafe { libc::localtime_r(&time, tm.as_mut_ptr()) };
     if ptr.is_null() {
         return None;
     }
-    // SAFETY: a non-null `localtime_r` return means `tm` was fully initialized.
     let tm = unsafe { tm.assume_init() };
     Some((
         tm.tm_year.checked_add(1900)?,
@@ -7030,20 +7463,21 @@ mod tests {
         bluetooth_auto_title, clone_announce_is_usb_local, control_announce_satisfies,
         controller_identity_secret_path, encode_hex, endpoint_matches_wifi_ll_keys,
         format_activity_age, format_announce_millis, format_connect_label, format_hop_count,
-        format_interface, format_managed_node_battery, format_next_hop, format_target_announce,
-        format_target_route, format_utc_millis, generic_bluetooth_auto_title,
-        instance_identity_secret_path, interface_peer, interface_peer_from_wire,
-        interface_power_from_connection, inventory_recovery_continues, load_persisted_tcp_target,
-        local_interface_config, local_interface_entry, managed_targets_from_disk,
-        monitor_remaining_at, normalize_stored_wifi_ll, operator_interface_kind,
-        operator_local_kind, parse_invitation_code, parse_target_names, parse_tcp_dial_target,
-        path_is_better_than, path_is_direct_ble, peer_label, persist_tcp_target, radio_facts,
-        remote_interface_entry, render_target_names, resolve_controller_tcp_target,
-        resolve_paired_target_hash, route_interface_kind, should_forget_control_route,
-        should_wait_for_control_announce, stored_alias, target_label, BackendError, InterfaceEntry,
-        InterfaceFact, InterfacePower, PeerHealth, RemoteControlAnnounceWait, TargetPath,
-        TargetStatus, CONTROLLER_IDENTITY_FILE, DEFAULT_TCP_TARGET, INSTANCE_IDENTITY_FILE,
-        MANAGER_ALIASES_FILE, TARGET_MONITOR_TTL, THIS_CONTROLLER_PEER_ALIAS,
+        format_interface, format_managed_node_battery, format_next_hop, format_pairing_open_label,
+        format_target_announce, format_target_route, format_utc_millis,
+        generic_bluetooth_auto_title, instance_identity_secret_path, interface_peer,
+        interface_peer_from_wire, interface_power_from_connection, inventory_recovery_continues,
+        load_persisted_tcp_target, local_interface_config, local_interface_entry,
+        managed_targets_from_disk, monitor_remaining_at, normalize_stored_wifi_ll,
+        operator_interface_kind, operator_local_kind, parse_invitation_code, parse_target_names,
+        parse_tcp_dial_target, path_is_better_than, path_is_direct_ble, peer_label,
+        persist_tcp_target, radio_facts, remote_interface_entry, render_target_names,
+        resolve_controller_tcp_target, resolve_paired_target_hash, route_interface_kind,
+        should_forget_control_route, should_wait_for_control_announce, stored_alias, target_label,
+        BackendError, InterfaceEntry, InterfaceFact, InterfacePower, PeerHealth,
+        RemoteControlAnnounceWait, TargetPath, TargetStatus, CONTROLLER_IDENTITY_FILE,
+        DEFAULT_TCP_TARGET, INSTANCE_IDENTITY_FILE, MANAGER_ALIASES_FILE, TARGET_MONITOR_TTL,
+        THIS_CONTROLLER_PEER_ALIAS,
     };
     use personal_rns::identity::IdentityHash;
     use personal_rns::interfaces::bluetooth_auto::BleIdentity;
@@ -7091,6 +7525,12 @@ mod tests {
             format_connect_label(u32::try_from(TARGET_MONITOR_TTL.as_secs()).unwrap()),
             "Connect 10:00"
         );
+    }
+
+    #[test]
+    fn pairing_open_label_formats_minutes_and_seconds() {
+        assert_eq!(format_pairing_open_label(0), "Open 00:00");
+        assert_eq!(format_pairing_open_label(185), "Open 03:05");
     }
 
     #[test]
@@ -8022,7 +8462,7 @@ mod tests {
     fn remote_ble_auto_title_ignores_generic_card_names_and_takes_the_identity_prefix() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::BluetoothAuto, b"ble");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("bluetooth-auto").expect("card name fits");
+        card.set_name("bluetooth-auto");
         let mut entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
@@ -8045,8 +8485,7 @@ mod tests {
         assert_ne!(entry.name, "bluetooth-auto");
         apply_bluetooth_auto_identity_title(&mut entry, Some("7a1b"));
         assert_eq!(entry.name, "bluetooth-auto 7a1b");
-        card.set_name("bluetooth-auto 7a1b")
-            .expect("card name fits");
+        card.set_name("bluetooth-auto 7a1b");
         apply_remote_card(&mut entry, &card);
         apply_bluetooth_auto_identity_title(&mut entry, Some("ffff"));
         assert_eq!(entry.name, "bluetooth-auto 7a1b");
@@ -8058,10 +8497,9 @@ mod tests {
     fn remote_auto_wifi_card_group_becomes_an_ipv6_fact() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::AutoWifi, b"lan");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("auto-wifi").expect("card name fits");
-        card.set_config("W,field-lab").expect("card config fits");
-        card.set_group("fe80::aea7:4ff:fee1:4b3c")
-            .expect("card group fits");
+        card.set_name("auto-wifi");
+        card.set_config("W,field-lab");
+        card.set_group("fe80::aea7:4ff:fee1:4b3c");
         let mut entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
@@ -8151,15 +8589,13 @@ mod tests {
     }
 
     #[test]
-    fn remote_interface_entry_uses_card_group_and_config() {
+    fn remote_interface_entry_uses_card_group_peers_and_config() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::BluetoothAuto, b"ble");
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("bluetooth-auto 7a1b")
-            .expect("card name fits");
-        card.set_group("home").expect("card group fits");
-        card.set_config("BLE supervisor").expect("card config fits");
-        card.set_failure("radio timeout")
-            .expect("card failure fits");
+        card.set_name("bluetooth-auto 7a1b");
+        card.set_group("home");
+        card.set_config("BLE supervisor");
+        card.set_failure("radio timeout");
         card.destinations = 4;
         let entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
@@ -8188,20 +8624,94 @@ mod tests {
             }]
         );
         assert!(entry.shows_peers);
-        assert!(entry.peers.is_empty());
+        assert!(
+            entry.peers.is_empty(),
+            "peers are fetched on a separate page"
+        );
+        let peer = interface_peer_from_wire(&RemoteControlInterfacePeer {
+            id: InterfaceId::from_channel_tag(InterfaceKind::BluetoothPeer, b"peer"),
+            connection: ConnectionState::Connected,
+            tx_bytes: 4,
+            rx_bytes: 6,
+            links: 1,
+            destinations: 2,
+            rate_bytes_per_sec: 8,
+            radio: RadioIndication::from_bluetooth_rssi(Some(-62)),
+            details: PeerDetails::NotApplicable,
+        });
+        assert_eq!(peer.role, "BLE");
+        assert!(peer.name.starts_with("BLE · P "));
+        assert_eq!(
+            radio_facts(peer.radio),
+            vec![InterfaceFact {
+                label: "RSSI".to_string(),
+                value: "-62 dBm".to_string(),
+            }]
+        );
+        assert_eq!(
+            radio_facts(RadioIndication::for_kind(Some(
+                InterfaceKind::BluetoothPeer
+            ))),
+            vec![InterfaceFact {
+                label: "RSSI".to_string(),
+                value: "pending".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn remote_auto_wifi_card_always_lists_rssi() {
+        let id = InterfaceId::from_channel_tag(InterfaceKind::AutoWifi, b"wifi");
+        let mut card = RemoteControlInterfaceCard::empty();
+        card.set_name("auto-wifi");
+        card.set_config("W,field-lab");
+        let without_sample = remote_interface_entry(
+            &RemoteControlInterfaceEntry {
+                id,
+                kind: InterfaceKind::AutoWifi,
+                mode: InterfaceMode::Full,
+                connection: ConnectionState::Connected,
+                enabled: true,
+                tx_bytes: 0,
+                rx_bytes: 0,
+                links: 0,
+                rate_bytes_per_sec: 0,
+            },
+            Some(&card),
+        );
+        assert!(without_sample
+            .extras
+            .iter()
+            .any(|fact| { fact.label == "RSSI" && fact.value == "not available" }));
+
+        card.set_config("W,field-lab|R-67").unwrap();
+        let with_sample = remote_interface_entry(
+            &RemoteControlInterfaceEntry {
+                id,
+                kind: InterfaceKind::AutoWifi,
+                mode: InterfaceMode::Full,
+                connection: ConnectionState::Connected,
+                enabled: true,
+                tx_bytes: 0,
+                rx_bytes: 0,
+                links: 0,
+                rate_bytes_per_sec: 0,
+            },
+            Some(&card),
+        );
+        assert!(with_sample
+            .extras
+            .iter()
+            .any(|fact| { fact.label == "RSSI" && fact.value == "-67 dBm" }));
     }
 
     #[test]
     fn remote_lora_entry_lists_tune_facts_under_config() {
         let id = InterfaceId::from_channel_tag(InterfaceKind::LoRa, b"lora");
+        let config = personal_rns::interfaces::lora::DEFAULT_915_PROFILE.inventory_config();
         let mut card = RemoteControlInterfaceCard::empty();
-        card.set_name("LoRa").expect("card name fits");
-        card.set_config(
-            personal_rns::interfaces::lora::DEFAULT_915_PROFILE
-                .inventory_config()
-                .as_str(),
-        )
-        .expect("card config fits");
+        card.set_name("LoRa");
+        card.set_config(config.as_str());
         let entry = remote_interface_entry(
             &RemoteControlInterfaceEntry {
                 id,
@@ -8218,44 +8728,7 @@ mod tests {
         );
         assert_eq!(
             entry.extras,
-            vec![
-                InterfaceFact {
-                    label: "Config".to_string(),
-                    value: "LoRa".to_string(),
-                },
-                InterfaceFact {
-                    label: "Region".to_string(),
-                    value: "US915".to_string(),
-                },
-                InterfaceFact {
-                    label: "Frequency".to_string(),
-                    value: "921.500 MHz".to_string(),
-                },
-                InterfaceFact {
-                    label: "Preset".to_string(),
-                    value: "Custom".to_string(),
-                },
-                InterfaceFact {
-                    label: "SF".to_string(),
-                    value: "7".to_string(),
-                },
-                InterfaceFact {
-                    label: "Bandwidth".to_string(),
-                    value: "500 kHz".to_string(),
-                },
-                InterfaceFact {
-                    label: "CR".to_string(),
-                    value: "4/5".to_string(),
-                },
-                InterfaceFact {
-                    label: "TX power".to_string(),
-                    value: "22 dBm".to_string(),
-                },
-                InterfaceFact {
-                    label: "Preamble".to_string(),
-                    value: "18".to_string(),
-                },
-            ]
+            super::hopspot_extra_facts(Some(config.as_str()), Some(InterfaceKind::LoRa), None)
         );
     }
 
@@ -8476,8 +8949,31 @@ mod tests {
         assert_eq!(
             radio_facts(RadioIndication::Wifi(WifiIndication::Unavailable)),
             vec![InterfaceFact {
-                label: "Signal".to_string(),
-                value: "not measured on this medium".to_string(),
+                label: "RSSI".to_string(),
+                value: "not available".to_string(),
+            }]
+        );
+        assert_eq!(
+            radio_facts(RadioIndication::Wifi(WifiIndication::Pending)),
+            vec![InterfaceFact {
+                label: "RSSI".to_string(),
+                value: "pending".to_string(),
+            }]
+        );
+        assert_eq!(
+            radio_facts(RadioIndication::Wifi(WifiIndication::Rssi(RssiDbm::new(
+                -51
+            )))),
+            vec![InterfaceFact {
+                label: "RSSI".to_string(),
+                value: "-51 dBm".to_string(),
+            }]
+        );
+        assert_eq!(
+            radio_facts(RadioIndication::from_bluetooth_rssi(None)),
+            vec![InterfaceFact {
+                label: "RSSI".to_string(),
+                value: "pending".to_string(),
             }]
         );
         assert_eq!(
@@ -8556,5 +9052,22 @@ mod tests {
             parse_invitation_code("ABCD12GH"),
             Err(BackendError::InvalidInvitationCode)
         );
+    }
+
+    #[test]
+    fn dismiss_operator_suppresses_same_open_not_later_pair_again() {
+        let mut pairing = super::PairingEvents::load(
+            std::env::temp_dir().join("prns-controller-dismiss-pairing-session-test-names"),
+        );
+        let id = "aabbccddeeff00112233445566778899";
+        let first_open = InstantMillis(1_000);
+        let second_open = InstantMillis(2_000);
+        pairing.remember_dismissed_session(id, first_open);
+        assert!(pairing.is_dismissed_session(id, first_open));
+        assert!(pairing.is_dismissed_session(id, InstantMillis(999)));
+        assert!(!pairing.is_dismissed_session(id, second_open));
+        assert!(!pairing.is_dismissed_session("other-device", first_open));
+        assert!(pairing.dismiss_operator(id));
+        assert!(!pairing.dismiss_operator(""));
     }
 }

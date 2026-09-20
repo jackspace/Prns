@@ -191,7 +191,8 @@ impl Settleable for BeginRemoteControlControllerPairing {
             | Settlement::ApproveRemoteControlControllerPairing(_)
             | Settlement::RejectRemoteControlControllerPairing(_)
             | Settlement::RemoteControlControllerPairingRequest(_)
-            | Settlement::SettleRemoteControlControllerPairingPersistence(_) => None,
+            | Settlement::SettleRemoteControlControllerPairingPersistence(_)
+            | Settlement::SetNetworkTransport(_) => None,
         }
     }
 }
@@ -290,7 +291,8 @@ impl Settleable for RemoteControlControllerPairingRequest {
             | Settlement::BeginRemoteControlControllerPairing(_)
             | Settlement::ApproveRemoteControlControllerPairing(_)
             | Settlement::RejectRemoteControlControllerPairing(_)
-            | Settlement::SettleRemoteControlControllerPairingPersistence(_) => None,
+            | Settlement::SettleRemoteControlControllerPairingPersistence(_)
+            | Settlement::SetNetworkTransport(_) => None,
         }
     }
 }
@@ -353,7 +355,8 @@ impl Settleable for ApproveRemoteControlControllerPairing {
             | Settlement::BeginRemoteControlControllerPairing(_)
             | Settlement::RejectRemoteControlControllerPairing(_)
             | Settlement::RemoteControlControllerPairingRequest(_)
-            | Settlement::SettleRemoteControlControllerPairingPersistence(_) => None,
+            | Settlement::SettleRemoteControlControllerPairingPersistence(_)
+            | Settlement::SetNetworkTransport(_) => None,
         }
     }
 }
@@ -426,7 +429,8 @@ impl Settleable for RejectRemoteControlControllerPairing {
             | Settlement::BeginRemoteControlControllerPairing(_)
             | Settlement::ApproveRemoteControlControllerPairing(_)
             | Settlement::RemoteControlControllerPairingRequest(_)
-            | Settlement::SettleRemoteControlControllerPairingPersistence(_) => None,
+            | Settlement::SettleRemoteControlControllerPairingPersistence(_)
+            | Settlement::SetNetworkTransport(_) => None,
         }
     }
 }
@@ -505,7 +509,8 @@ impl Settleable for SettleRemoteControlControllerPairingPersistence {
             | Settlement::BeginRemoteControlControllerPairing(_)
             | Settlement::ApproveRemoteControlControllerPairing(_)
             | Settlement::RejectRemoteControlControllerPairing(_)
-            | Settlement::RemoteControlControllerPairingRequest(_) => None,
+            | Settlement::RemoteControlControllerPairingRequest(_)
+            | Settlement::SetNetworkTransport(_) => None,
         }
     }
 }

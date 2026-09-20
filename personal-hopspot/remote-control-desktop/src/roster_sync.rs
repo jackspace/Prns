@@ -519,6 +519,32 @@ fn sibling_alias_number(value: &str) -> Option<u32> {
     rest.parse().ok()
 }
 
+/// Lowest unused `Alias <n>` among current managed-node aliases (custom names are ignored).
+#[must_use]
+pub fn next_target_alias(aliases: &HashMap<String, String>) -> String {
+    let mut taken = aliases
+        .values()
+        .filter_map(|value| target_alias_number(value))
+        .collect::<Vec<_>>();
+    taken.sort_unstable();
+    taken.dedup();
+    let mut number = 1u32;
+    for used in taken {
+        if used == number {
+            number = number.saturating_add(1);
+        }
+    }
+    format!("Alias {number}")
+}
+
+fn target_alias_number(value: &str) -> Option<u32> {
+    let rest = value.trim().strip_prefix("Alias ")?;
+    if rest.is_empty() || !rest.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    rest.parse().ok()
+}
+
 fn upsert_clock(replica: &RosterReplica, hash: IdentityHash) -> u64 {
     replica
         .upserts
@@ -685,10 +711,10 @@ fn upsert_label(replica: &mut RosterReplica, label: RosterLabel) {
     replica.labels.push(label);
 }
 
-fn authority_for_requests(requests: &RemoteControlRequestSet) -> RemoteControlControllerAuthority {
+fn authority_for(requests: &RemoteControlRequestSet) -> RemoteControlControllerAuthority {
     if requests
         .iter()
-        .any(RemoteControlRequestKind::requires_administrator)
+        .any(|request| request.requires_administrator())
     {
         RemoteControlControllerAuthority::Administrator
     } else {
@@ -1097,7 +1123,7 @@ fn decode_replica_body(
         }
         let access = RemoteControlTargetAccess::new(
             RemoteControlTargetIdentity::new(keys.public_keys()),
-            authority_for_requests(&requests),
+            authority_for(&requests),
             requests,
         )
         .ok()?;
@@ -1733,6 +1759,16 @@ mod tests {
         aliases.insert("bb".to_string(), "Kitchen".to_string());
         aliases.insert("cc".to_string(), "Sibling 3".to_string());
         assert_eq!(next_sibling_alias(&aliases), "Sibling 2");
+    }
+
+    #[test]
+    fn next_target_alias_fills_the_lowest_unused_number() {
+        let mut aliases = HashMap::new();
+        assert_eq!(next_target_alias(&aliases), "Alias 1");
+        aliases.insert("aa".to_string(), "Alias 1".to_string());
+        aliases.insert("bb".to_string(), "Heltec".to_string());
+        aliases.insert("cc".to_string(), "Alias 3".to_string());
+        assert_eq!(next_target_alias(&aliases), "Alias 2");
     }
 
     #[test]

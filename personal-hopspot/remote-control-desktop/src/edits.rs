@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use personal_rns::interfaces::lora::{
-    CodingRate, Frequency, LoraBandwidth, ModemPreset, Modulation, PreambleSymbols, RadioProfile,
-    RegulatoryRegion, SpreadingFactor, SubGRegion, TxPower,
+    Frequency, ModemPreset, PreambleSymbols, RadioProfile, RegulatoryRegion as Region,
+    SubGRegion, TxPower,
 };
 use personal_rns::interfaces::InterfaceMode;
 use personal_rns::remote_control::parse_wifi_station_ssid;
@@ -243,154 +243,70 @@ pub fn saved_lora(entry: &InterfaceEntry) -> Option<RadioProfile> {
         .and_then(RadioProfile::parse_inventory_config)
 }
 
-/// Regions the operator can pick: every regulated band plus the custom one.
 #[must_use]
-pub fn region_choices() -> Vec<SubGRegion> {
-    RegulatoryRegion::ALL
-        .into_iter()
-        .map(SubGRegion::Regulated)
-        .chain(std::iter::once(SubGRegion::Custom))
-        .collect()
-}
-
-#[must_use]
-pub fn region_from_label(label: &str) -> Option<SubGRegion> {
-    region_choices()
-        .into_iter()
-        .find(|region| region.label() == label)
-}
-
-#[must_use]
-pub fn apply_lora_region(profile: RadioProfile, region: SubGRegion) -> RadioProfile {
-    if region == profile.region() {
-        return profile;
-    }
-    let defaults = region.manual_lora_defaults();
+pub fn apply_lora_region(profile: RadioProfile, region: Region) -> RadioProfile {
+    let next_region = SubGRegion::Regulated(region);
+    let frequency = if next_region != profile.region() {
+        next_region.default_frequency()
+    } else {
+        profile.frequency()
+    };
+    let tx_power = if profile.tx_power().dbm() > next_region.max_tx_power().dbm() {
+        next_region.max_tx_power()
+    } else {
+        profile.tx_power()
+    };
     RadioProfile::new(
-        region,
-        defaults.frequency(),
-        defaults.modulation(),
-        defaults.tx_power(),
-        defaults.preamble(),
+        next_region,
+        frequency,
+        profile.modulation(),
+        tx_power,
+        profile.preamble(),
     )
     .unwrap_or(profile)
 }
 
 #[must_use]
 pub fn apply_lora_preset(profile: RadioProfile, preset: ModemPreset) -> RadioProfile {
-    apply_lora_modulation(profile, preset.modulation())
+    profile
+        .with_modulation(preset.modulation())
+        .unwrap_or(profile)
 }
 
 #[must_use]
-pub fn apply_lora_spreading_factor(
+pub fn set_lora_modulation(
     profile: RadioProfile,
-    spreading_factor: SpreadingFactor,
+    spreading_factor: personal_rns::interfaces::lora::SpreadingFactor,
+    bandwidth: personal_rns::interfaces::lora::LoraBandwidth,
+    coding_rate: personal_rns::interfaces::lora::CodingRate,
 ) -> RadioProfile {
-    let Modulation::Lora {
-        bandwidth,
-        coding_rate,
-        ..
-    } = profile.modulation();
-    apply_lora_modulation(
-        profile,
-        Modulation::Lora {
+    profile
+        .with_modulation(personal_rns::interfaces::lora::Modulation::Lora {
             spreading_factor,
             bandwidth,
             coding_rate,
-        },
-    )
-}
-
-#[must_use]
-pub fn apply_lora_bandwidth(profile: RadioProfile, bandwidth: LoraBandwidth) -> RadioProfile {
-    let Modulation::Lora {
-        spreading_factor,
-        coding_rate,
-        ..
-    } = profile.modulation();
-    apply_lora_modulation(
-        profile,
-        Modulation::Lora {
-            spreading_factor,
-            bandwidth,
-            coding_rate,
-        },
-    )
-}
-
-#[must_use]
-pub fn apply_lora_coding_rate(profile: RadioProfile, coding_rate: CodingRate) -> RadioProfile {
-    let Modulation::Lora {
-        spreading_factor,
-        bandwidth,
-        ..
-    } = profile.modulation();
-    apply_lora_modulation(
-        profile,
-        Modulation::Lora {
-            spreading_factor,
-            bandwidth,
-            coding_rate,
-        },
-    )
-}
-
-/// A wider channel can no longer fit where the old one sat, so re-centre the
-/// frequency for the new shape before giving up on the edit.
-fn apply_lora_modulation(profile: RadioProfile, modulation: Modulation) -> RadioProfile {
-    if let Ok(next) = profile.with_modulation(modulation) {
-        return next;
-    }
-    let Ok(recentred) = RadioProfile::new(
-        profile.region(),
-        Frequency::new(clamp_center_hz(
-            profile.frequency().hz(),
-            profile.region(),
-            modulation,
-        )),
-        modulation,
-        profile.tx_power(),
-        profile.preamble(),
-    ) else {
-        return profile;
-    };
-    recentred
+        })
+        .unwrap_or(profile)
 }
 
 #[must_use]
 pub fn clamp_lora_frequency(profile: RadioProfile, hz: u32) -> RadioProfile {
-    let hz = clamp_center_hz(hz, profile.region(), profile.modulation());
-    profile
-        .with_frequency(Frequency::new(hz))
-        .unwrap_or(profile)
+    let range = profile.region().frequency_range();
+    let frequency = Frequency::new(hz.clamp(range.minimum().hz(), range.maximum().hz()));
+    profile.with_frequency(frequency).unwrap_or(profile)
 }
 
 #[must_use]
 pub fn clamp_lora_tx_power(profile: RadioProfile, dbm: i8) -> RadioProfile {
     let ceiling = profile.region().max_tx_power().dbm();
-    profile
-        .with_tx_power(TxPower::new(dbm.clamp(LORA_TX_POWER_MIN_DBM, ceiling)))
-        .unwrap_or(profile)
+    let tx_power = TxPower::new(dbm.clamp(LORA_TX_POWER_MIN_DBM, ceiling));
+    profile.with_tx_power(tx_power).unwrap_or(profile)
 }
 
 #[must_use]
 pub fn clamp_lora_preamble(profile: RadioProfile, count: u16) -> RadioProfile {
-    profile
-        .with_preamble(PreambleSymbols::new(count.max(1)))
-        .unwrap_or(profile)
-}
-
-/// The region range bounds the whole occupied channel, not just its centre, so
-/// half a bandwidth is reserved at each edge.
-fn clamp_center_hz(hz: u32, region: SubGRegion, modulation: Modulation) -> u32 {
-    let Modulation::Lora { bandwidth, .. } = modulation;
-    let range = region.frequency_range();
-    let lower_half = bandwidth.hz() / 2;
-    let upper_half = bandwidth.hz() - lower_half;
-    hz.clamp(
-        range.minimum().hz().saturating_add(lower_half),
-        range.maximum().hz().saturating_sub(upper_half),
-    )
+    let preamble = PreambleSymbols::new(count.max(1));
+    profile.with_preamble(preamble).unwrap_or(profile)
 }
 
 #[must_use]
@@ -421,20 +337,20 @@ pub fn parse_lora_frequency_mhz(text: &str) -> Option<u32> {
     Some(mhz.saturating_mul(1_000_000).saturating_add(khz * 1_000))
 }
 
-fn spreading_factor(profile: RadioProfile) -> SpreadingFactor {
-    let Modulation::Lora {
+fn spreading_factor(profile: RadioProfile) -> personal_rns::interfaces::lora::SpreadingFactor {
+    let personal_rns::interfaces::lora::Modulation::Lora {
         spreading_factor, ..
     } = profile.modulation();
     spreading_factor
 }
 
-fn bandwidth(profile: RadioProfile) -> LoraBandwidth {
-    let Modulation::Lora { bandwidth, .. } = profile.modulation();
+fn bandwidth(profile: RadioProfile) -> personal_rns::interfaces::lora::LoraBandwidth {
+    let personal_rns::interfaces::lora::Modulation::Lora { bandwidth, .. } = profile.modulation();
     bandwidth
 }
 
-fn coding_rate(profile: RadioProfile) -> CodingRate {
-    let Modulation::Lora { coding_rate, .. } = profile.modulation();
+fn coding_rate(profile: RadioProfile) -> personal_rns::interfaces::lora::CodingRate {
+    let personal_rns::interfaces::lora::Modulation::Lora { coding_rate, .. } = profile.modulation();
     coding_rate
 }
 
@@ -681,19 +597,14 @@ mod tests {
 
     #[test]
     fn lora_tune_edits_are_dirty_until_they_match_the_saved_profile() {
-        use personal_rns::interfaces::lora::{
-            ModemPreset, RegulatoryRegion, SubGRegion, DEFAULT_915_PROFILE,
-        };
+        use personal_rns::interfaces::lora::{ModemPreset, RegulatoryRegion as Region, DEFAULT_915_PROFILE};
 
         let mut saved = entry(InterfaceMode::Full);
         saved.kind = "lora".to_string();
         crate::backend::apply_lora_profile_to_entry(&mut saved, DEFAULT_915_PROFILE);
         let mut draft = InterfaceDraft::captured_from(&saved);
         assert!(!draft.is_dirty(&saved));
-        draft.lora = Some(apply_lora_region(
-            DEFAULT_915_PROFILE,
-            SubGRegion::Regulated(RegulatoryRegion::Eu868),
-        ));
+        draft.lora = Some(apply_lora_region(DEFAULT_915_PROFILE, Region::Eu868));
         assert!(draft.field_changed(&saved, InterfaceField::LoRaTune));
         assert!(draft.lora_control_changed(&saved, LoRaTuneControl::Region));
         assert!(draft.lora_control_changed(&saved, LoRaTuneControl::Frequency));

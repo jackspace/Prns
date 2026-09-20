@@ -4,19 +4,17 @@ use dioxus::prelude::*;
 
 use crate::backend::{
     auto_wifi_peer_list_note, bluetooth_auto_peer_list_note, format_activity_age,
-    format_connect_label, format_target_route, format_wall_clock_now, interface_mode_label,
-    radio_facts, target_label, BackendError, ControllerIdentity, InterfaceEntry, InterfacePower,
-    PairingState, PathProbeReason, RemoteControlAnnounceWait, RemoteControlBackend, TargetAccess,
-    TargetStatus,
+    format_connect_label, format_pairing_open_label, format_target_route, format_wall_clock_now,
+    interface_mode_label, radio_facts, target_label, BackendError, ControllerIdentity,
+    InterfaceEntry, InterfacePower, PairingState, PathProbeReason, RemoteControlAnnounceWait,
+    RemoteControlBackend, TargetAccess, TargetStatus,
 };
 use crate::edits::{
-    apply_draft_to_entry, apply_lora_bandwidth, apply_lora_coding_rate, apply_lora_preset,
-    apply_lora_region, apply_lora_spreading_factor, can_edit_group, can_edit_lora,
+    apply_draft_to_entry, apply_lora_preset, apply_lora_region, can_edit_group, can_edit_lora,
     can_edit_tcp_target, can_edit_wifi_station, clamp_lora_frequency, clamp_lora_preamble,
     clamp_lora_tx_power, dirty_keys_matching, draft_or_saved, format_lora_frequency_input,
-    parse_lora_frequency_mhz, put_draft, region_choices, region_from_label, revert_drafts,
-    saved_group, saved_tcp_target, InterfaceDraft, InterfaceField, LoRaTuneControl,
-    LORA_TX_POWER_MIN_DBM,
+    parse_lora_frequency_mhz, put_draft, revert_drafts, saved_group, saved_tcp_target,
+    set_lora_modulation, InterfaceDraft, InterfaceField, LoRaTuneControl, LORA_TX_POWER_MIN_DBM,
 };
 #[cfg(not(target_os = "android"))]
 use crate::flash::{
@@ -32,9 +30,11 @@ struct FlashProgress;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct FlashDraft;
 use personal_rns::interfaces::lora::{
-    CodingRate, LoraBandwidth, ModemPreset, Modulation, RadioProfile, SpreadingFactor,
+    CodingRate, LoraBandwidth, ModemPreset, Modulation, RadioProfile, RegulatoryRegion as Region,
+    SpreadingFactor, SubGRegion,
 };
 use personal_rns::interfaces::InterfaceMode;
+use personal_rns::remote_control::RemoteControlNetworkTransport;
 
 const CONTROLLER_SCOPE: &str = "controller";
 const ACTIVITY_LOG_LIMIT: usize = 80;
@@ -56,7 +56,7 @@ button { cursor: pointer; }
   flex: 0 0 auto;
   z-index: 10;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
   padding: 12px 18px;
@@ -64,8 +64,9 @@ button { cursor: pointer; }
   color: #f5faf6;
   box-shadow: 0 1px 0 rgba(0, 0, 0, .18);
 }
-.app-bar-nav { display: flex; align-items: center; gap: 4px; }
+.app-bar-nav { display: flex; align-items: center; gap: 4px; justify-self: start; }
 .app-bar h1 { margin: 0; font-size: 20px; font-weight: 700; text-align: center; letter-spacing: .01em; }
+.app-bar-spacer { justify-self: end; }
 .app-bar button {
   border: 0;
   background: transparent;
@@ -115,7 +116,7 @@ h1 { margin: 5px 0 8px; font-size: 31px; }
 .flash-board .detected { margin: 8px 0 0; font-size: 12px; font-weight: 600; color: #183d2b; }
 .accordion-item.probable { border-color: #2d6046; box-shadow: 0 0 0 2px rgba(45, 96, 70, .22); }
 .flash-actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; margin-top: 4px; }
-.flash-stages { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 18px 0 0; padding: 0; }
+.flash-stages { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 10px 0 0; padding: 0; }
 .flash-stages[data-count="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .flash-stage { position: relative; display: grid; justify-items: center; gap: 8px; text-align: center; }
 .flash-stage::before { content: ""; position: absolute; top: 11px; right: calc(50% + 16px); left: calc(-50% + 16px); height: 2px; background: #d7e0d9; }
@@ -130,7 +131,7 @@ h1 { margin: 5px 0 8px; font-size: 31px; }
 .flash-stage .label { font-size: 12px; font-weight: 600; color: #5a6a60; }
 .flash-stage.current .label, .flash-stage.done .label { color: #183d2b; }
 .flash-stage.failed .label { color: #8a2f2f; }
-.flash-stage-detail { margin: 10px 0 0; }
+.flash-stage-detail { margin: 10px 0 0; white-space: pre-wrap; max-height: 14em; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
 .flash-manage { margin-top: 12px; }
 .card h2, .card h3 { margin-top: 0; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -142,25 +143,34 @@ h1 { margin: 5px 0 8px; font-size: 31px; }
 .info-note { margin: 10px 0 14px; }
 .twisty-bar { display: flex; align-items: stretch; }
 .twisty-bar .twisty-row { flex: 1; min-width: 0; }
+.twisty-bar .interface-power { align-self: center; flex: 0 0 auto; min-width: 4.5rem; margin-right: 2px; }
 .target-head { display: flex; align-items: flex-start; gap: 8px; padding: 14px 16px; }
 .target-head .twisty-toggle { border: 0; background: transparent; padding: 2px 0 0; width: 24px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; }
 .target-main { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start; }
 .target-copy { min-width: 0; display: grid; gap: 6px; }
-.target-main > .facts { grid-column: 1 / -1; min-width: 0; }
-.target-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.target-main > .target-section,
+.target-main > .whitelist-rule { grid-column: 1 / -1; min-width: 0; }
+.target-section { display: grid; gap: 8px; min-width: 0; }
+.target-section-title { margin: 0; font-size: 12px; font-weight: 700; color: #17221b; }
+.target-title { display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-width: 0; }
 .target-title .name { font-weight: 700; flex: 0 0 auto; }
 .target-title .build { font-size: 12px; font-weight: 500; color: #64736a; flex: 0 0 auto; }
-.target-title .peer-alias { flex: 1; min-width: 72px; max-width: 240px; }
+.target-title .peer-alias { flex: 1; min-width: 72px; max-width: none; height: 30px; margin: 0; border: 0; border-radius: 0; padding: 0; background: transparent; font: inherit; font-weight: 700; color: inherit; }
+.target-title .peer-alias:focus { outline: none; box-shadow: 0 1px 0 #2d6046; }
+.target-subtitle { font-size: 12px; font-weight: 500; color: #64736a; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .target-aside { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 7.75rem; }
 .target-aside-status { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .target-controller-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
-.target-controller-actions .button { flex: 1 1 6.5rem; padding: 7px 10px; font-size: 13px; }
+.target-controller-actions .button { flex: 0 0 auto; white-space: nowrap; }
 .target-controller-actions .note { flex: 1 1 100%; margin: 0; font-size: 12px; }
-.target-aside .target-controller-actions { flex-direction: column; }
-.target-aside .target-controller-actions .button { width: 100%; flex: 0 0 auto; }
-.target-aside .target-controller-actions .note { max-width: 11rem; }
-.target-copy .target-controller-actions { flex-wrap: nowrap; gap: 9px; }
-.target-copy .target-controller-actions .button { flex: 0 0 auto; padding: 9px 14px; font-size: inherit; white-space: nowrap; }
+.target-controller-actions .open-window {
+  align-self: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: #2d6a9f;
+  white-space: nowrap;
+}
+.target-copy .target-controller-actions { flex-wrap: wrap; gap: 9px; }
 .target-head .refresh { align-self: center; }
 .refresh { flex: 0 0 auto; align-self: center; border: 0; background: transparent; color: #183d2b; padding: 8px 10px; line-height: 1; font-size: 18px; }
 .refresh:hover { background: #eef5f0; border-radius: 6px; }
@@ -170,7 +180,7 @@ h1 { margin: 5px 0 8px; font-size: 31px; }
 .status.online { color: #167346; }
 .status.sleeping { color: #956b16; }
 .status.awaiting { color: #2d6a9f; }
-.button { border: 1px solid #b7c8bc; border-radius: 7px; background: white; color: #183d2b; padding: 9px 14px; }
+.button { border: 1px solid #b7c8bc; border-radius: 7px; background: white; color: #183d2b; padding: 7px 10px; font-family: inherit; font-size: 13px; font-weight: 400; line-height: normal; }
 .button:hover { background: #f3f7f4; }
 .button.primary { border-color: #246844; background: #246844; color: white; }
 .button.danger { border-color: #a3493f; color: #8b3029; }
@@ -195,6 +205,12 @@ h1 { margin: 5px 0 8px; font-size: 31px; }
 .deck.editing .deck-track { transform: translateX(-50%); }
 .edit-card { display: grid; gap: 12px; }
 .edit-card h3 { margin: 0; font-size: 15px; }
+.flash-image-pick { display: grid; gap: 10px; margin: 0 0 20px; }
+.flash-image-pick label { display: grid; gap: 8px; margin: 0; }
+.flash-image-pick select { margin-top: 0; }
+.flash-image-pick .flash-actions { margin: 0; }
+.flash-image-pick .flash-actions .button { min-width: 92px; }
+.flash-image-pick .flash-build-status { margin: 0; white-space: pre-wrap; max-height: 14em; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
 .facts div.changed { background: #fff8ea; box-shadow: inset 3px 0 0 #c48a1a; border-radius: 4px; padding: 2px 6px; }
 .facts div.changed dt { color: #956b16; }
 .unsaved-overlay { position: fixed; inset: 0; background: rgba(23, 34, 27, .35); display: grid; place-items: center; z-index: 20; padding: 24px; }
@@ -228,7 +244,9 @@ select { width: 100%; margin-top: 6px; border: 1px solid #bfcac2; border-radius:
 .twisty-address { color: #64736a; font-size: 13px; word-break: break-all; }
 .allow-list-key { color: #64736a; font-size: 12px; word-break: break-all; }
 .identity-block { margin: 18px 0 8px; }
-.identity-block h3, .identity-block h4 { margin: 0 0 8px; }
+.card > .heading-row { margin-bottom: 8px; }
+.card > .heading-row h2 { margin: 0; }
+.identity-block h2, .identity-block h3, .identity-block h4 { margin: 0 0 8px; }
 .identity-kicker { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #52705c; margin: 0 0 4px; }
 .identity-block .note { margin: 0 0 8px; }
 .identity-block .interface-toolbar { margin: 4px 0 12px; }
@@ -280,8 +298,10 @@ select { width: 100%; margin-top: 6px; border: 1px solid #bfcac2; border-radius:
 .peer-list { display: grid; gap: 10px; margin: 8px 0 0; padding: 0; list-style: none; min-width: 0; }
 .peer-card { border: 1px solid #e3ebe5; border-radius: 6px; padding: 10px; background: #fff; min-width: 0; }
 .peer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 13px; }
-.peer-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
-.peer-head .name { font-weight: 700; flex: 0 0 auto; }
+.peer-title { display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-width: 0; flex: 1; }
+.peer-title .peer-alias { flex: 1; min-width: 72px; max-width: none; height: 30px; margin: 0; border: 0; border-radius: 0; padding: 0; background: transparent; font: inherit; font-weight: 700; color: inherit; }
+.peer-title .peer-alias:focus { outline: none; box-shadow: 0 1px 0 #2d6046; }
+.peer-subtitle { font-size: 12px; font-weight: 500; color: #64736a; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .peer-alias { flex: 1; min-width: 72px; height: 28px; margin: 0; border: 1px solid #bfcac2; border-radius: 7px; padding: 0 8px; background: #fbfdfb; }
 @media (max-width: 720px) {
   .app-bar { padding: 10px 12px; }
@@ -388,7 +408,7 @@ enum UnsavedAfter {
 
 #[allow(non_snake_case)]
 pub fn App() -> Element {
-    let screen = use_signal(|| Screen::Nodes);
+    let screen = use_signal(|| Screen::Settings);
     let backend = use_signal(RemoteControlBackend::new);
     let mut selected_target = use_signal(String::new);
     let mut targets = use_signal({
@@ -434,10 +454,6 @@ pub fn App() -> Element {
                 push_activity(activity_log, "Controller node failed to start.");
                 return;
             }
-            let version_inflight =
-                std::sync::Arc::new(std::sync::Mutex::new(HashSet::<String>::new()));
-            let battery_inflight =
-                std::sync::Arc::new(std::sync::Mutex::new(HashSet::<String>::new()));
             loop {
                 backend.advance_target_monitors();
                 // Local inventory is synchronous and must not wait on sibling
@@ -502,61 +518,7 @@ pub fn App() -> Element {
                             .write()
                             .retain(|id, _| id == CONTROLLER_SCOPE || live_ids.contains(id));
                         expanded_targets.write().retain(|id| live_ids.contains(id));
-                        if let Ok(mut inflight) = version_inflight.lock() {
-                            inflight.retain(|id| live_ids.contains(id));
-                        }
-                        if let Ok(mut inflight) = battery_inflight.lock() {
-                            inflight.retain(|id| live_ids.contains(id));
-                        }
-                        for item in &items {
-                            if item.status == TargetStatus::AwaitingPairing
-                                || item.build_version.is_some()
-                                || !backend.is_monitoring_target(&item.id)
-                            {
-                                continue;
-                            }
-                            {
-                                let Ok(mut inflight) = version_inflight.lock() else {
-                                    continue;
-                                };
-                                if !inflight.insert(item.id.clone()) {
-                                    continue;
-                                }
-                            }
-                            let backend = backend.clone();
-                            let inflight = version_inflight.clone();
-                            let id = item.id.clone();
-                            spawn(async move {
-                                let _ = backend.refresh_build_version(&id).await;
-                                if let Ok(mut inflight) = inflight.lock() {
-                                    inflight.remove(&id);
-                                }
-                            });
-                        }
-                        for item in &items {
-                            if item.status == TargetStatus::AwaitingPairing
-                                || !backend.is_monitoring_target(&item.id)
-                            {
-                                continue;
-                            }
-                            {
-                                let Ok(mut inflight) = battery_inflight.lock() else {
-                                    continue;
-                                };
-                                if !inflight.insert(item.id.clone()) {
-                                    continue;
-                                }
-                            }
-                            let backend = backend.clone();
-                            let inflight = battery_inflight.clone();
-                            let id = item.id.clone();
-                            spawn(async move {
-                                let _ = backend.refresh_battery(&id).await;
-                                if let Ok(mut inflight) = inflight.lock() {
-                                    inflight.remove(&id);
-                                }
-                            });
-                        }
+                        // Build / battery come from Connect or explicit refresh only.
                         adopt_missing_aliases(target_aliases, backend.target_aliases());
                         targets.set(items);
                     }
@@ -572,6 +534,25 @@ pub fn App() -> Element {
         div { class: "shell",
             header { class: "app-bar",
                 div { class: "app-bar-nav",
+                    button {
+                        class: if screen() == Screen::Settings { "active" } else { "" },
+                        title: "Settings",
+                        aria_label: "Settings",
+                        onclick: move |_| {
+                            request_screen(
+                                Screen::Settings,
+                                screen,
+                                drafts,
+                                interfaces_by_target,
+                                unsaved,
+                            );
+                        },
+                        svg {
+                            view_box: "0 0 24 24",
+                            circle { cx: "12", cy: "12", r: "3" }
+                            path { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" }
+                        }
+                    }
                     button {
                         class: if screen() == Screen::Nodes { "active" } else { "" },
                         title: "Managed Nodes",
@@ -615,25 +596,7 @@ pub fn App() -> Element {
                     }
                 }
                 h1 { "PRNS Controller" }
-                button {
-                    class: if screen() == Screen::Settings { "active" } else { "" },
-                    title: "Settings",
-                    aria_label: "Settings",
-                    onclick: move |_| {
-                        request_screen(
-                            Screen::Settings,
-                            screen,
-                            drafts,
-                            interfaces_by_target,
-                            unsaved,
-                        );
-                    },
-                    svg {
-                        view_box: "0 0 24 24",
-                        circle { cx: "12", cy: "12", r: "3" }
-                        path { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" }
-                    }
-                }
+                div { class: "app-bar-spacer", aria_hidden: "true" }
             }
             main { class: "content",
                 match screen() {
@@ -668,6 +631,12 @@ pub fn App() -> Element {
                             p { class: "lead", "This app runs its own Personal Reticulum (PRNS) node. Use the interfaces below to reach targets directly (1 hop) for pairing, or generally (any number of hops) to manage them." }
                             if settings_info() {
                                 p { class: "note info-note", "to come" }
+                            }
+                        }
+                        section { class: "card",
+                            ControllerConfigurationPanel {
+                                backend,
+                                activity_log,
                             }
                         }
                         section { class: "card",
@@ -715,15 +684,14 @@ pub fn App() -> Element {
                             }
                         }
                         section { class: "card",
-                            h2 { "Identity management" }
-                            {controller_identity_card(
-                                backend().controller_identity(),
-                                clone_view(),
+                            ControllerIdentityCard {
+                                identity: backend().controller_identity(),
+                                clone: clone_view(),
                                 backend,
                                 sibling_aliases,
                                 focused_sibling_alias,
                                 activity_log,
-                            )}
+                            }
                         }
                         section { class: "card",
                             h2 { "Activity log" }
@@ -839,8 +807,9 @@ pub fn App() -> Element {
                                             div { class: "target-main",
                                                 div { class: "target-copy",
                                                     div { class: "target-title",
-                                                        span { class: "name", "{target_display_name(&target)}" }
-                                                        if !awaiting {
+                                                        if awaiting {
+                                                            span { class: "name", "{target_display_name(&target)}" }
+                                                        } else {
                                                             input {
                                                                 class: "peer-alias",
                                                                 r#type: "text",
@@ -886,8 +855,27 @@ pub fn App() -> Element {
                                                                 },
                                                             }
                                                         }
+                                                        if !awaiting {
+                                                            span { class: "target-subtitle", "{target_display_name(&target)}" }
+                                                        }
                                                     }
-                                                    if !awaiting && cfg!(feature = "mobile") {
+                                                    if awaiting {
+                                                        AwaitingPairingActions {
+                                                            target_id: target.id.clone(),
+                                                            pairing_expires_in_secs: target
+                                                                .pairing_expires_in_secs
+                                                                .unwrap_or(0),
+                                                            backend,
+                                                            activity_log,
+                                                            targets,
+                                                            selected_target,
+                                                            expanded_targets,
+                                                            pairing,
+                                                            pairing_error,
+                                                            pairing_target,
+                                                            invitation_code,
+                                                        }
+                                                    } else {
                                                         ControllerTargetActions {
                                                             target_id: target.id.clone(),
                                                             monitor_remaining_secs: target.monitor_remaining_secs,
@@ -900,9 +888,6 @@ pub fn App() -> Element {
                                                             interfaces_by_target,
                                                             pairing,
                                                         }
-                                                    }
-                                                    if cfg!(not(feature = "mobile")) {
-                                                        ManagedTargetFacts { target: target.clone() }
                                                     }
                                                 }
                                                 div { class: "target-aside",
@@ -945,23 +930,16 @@ pub fn App() -> Element {
                                                             },
                                                         }
                                                     }
-                                                    if !awaiting && cfg!(not(feature = "mobile")) {
-                                                        ControllerTargetActions {
-                                                            target_id: target.id.clone(),
-                                                            monitor_remaining_secs: target.monitor_remaining_secs,
-                                                            backend,
-                                                            activity_log,
-                                                            target_aliases,
-                                                            targets,
-                                                            selected_target,
-                                                            expanded_targets,
-                                                            interfaces_by_target,
-                                                            pairing,
-                                                        }
-                                                    }
                                                 }
-                                                if cfg!(feature = "mobile") {
-                                                    ManagedTargetFacts { target: target.clone() }
+                                                if !awaiting {
+                                                    hr { class: "whitelist-rule" }
+                                                    ManagedTargetConfiguration {
+                                                        target: target.clone(),
+                                                        backend,
+                                                        activity_log,
+                                                        targets,
+                                                        target_aliases,
+                                                    }
                                                 }
                                             }
                                             }
@@ -1004,7 +982,9 @@ pub fn App() -> Element {
                                                                 }
                                                             };
                                                             rsx! {
-                                                                div { class: "interface-list-head",
+                                                                hr { class: "whitelist-rule" }
+                                                                div { class: "target-section",
+                                                                    h3 { class: "target-section-title", "Actions" }
                                                                     TargetControls {
                                                                         target_id: target.id.clone(),
                                                                         status: target.status,
@@ -1012,36 +992,45 @@ pub fn App() -> Element {
                                                                         activity_log,
                                                                         targets,
                                                                     }
-                                                                    if let Some(arrived_at) = arrived_at {
-                                                                        p { class: "interface-as-of", "as of {arrived_at}" }
-                                                                    }
                                                                 }
-                                                                InterfaceAccordion {
-                                                                    host: InterfaceHost::Target(target.id.clone()),
-                                                                    loaded,
-                                                                    expanded_interfaces,
-                                                                    drafts,
-                                                                    editing,
-                                                                    saving,
-                                                                    save_notices,
-                                                                    focused_interface,
-                                                                    unsaved,
-                                                                    expanded_targets,
-                                                                    screen,
-                                                                    interfaces_by_target,
-                                                                    backend,
-                                                                    activity_log,
-                                                                    peer_aliases,
-                                                                    pairing,
+                                                                hr { class: "whitelist-rule" }
+                                                                div { class: "target-section",
+                                                                    div { class: "interface-list-head",
+                                                                        h3 { class: "target-section-title", "Interfaces" }
+                                                                        if let Some(arrived_at) = arrived_at {
+                                                                            p { class: "interface-as-of", "as of {arrived_at}" }
+                                                                        }
+                                                                    }
+                                                                    InterfaceAccordion {
+                                                                        host: InterfaceHost::Target(target.id.clone()),
+                                                                        loaded,
+                                                                        expanded_interfaces,
+                                                                        drafts,
+                                                                        editing,
+                                                                        saving,
+                                                                        save_notices,
+                                                                        focused_interface,
+                                                                        unsaved,
+                                                                        expanded_targets,
+                                                                        screen,
+                                                                        interfaces_by_target,
+                                                                        backend,
+                                                                        activity_log,
+                                                                        peer_aliases,
+                                                                        pairing,
+                                                                    }
                                                                 }
                                                             }
                                                         }
                                                         hr { class: "whitelist-rule" }
-                                                        NodeManagementWhitelist {
-                                                            target_id: target.id.clone(),
-                                                            backend,
-                                                            activity_log,
-                                                            manager_aliases,
+                                                        div { class: "target-section",
+                                                            h3 { class: "target-section-title", "Controller Id" }
+                                                            NodeManagementWhitelist {
+                                                                target_id: target.id.clone(),
+                                                                backend,
+                                                                activity_log,
+                                                                manager_aliases,
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -1076,29 +1065,356 @@ pub fn App() -> Element {
 }
 
 #[component]
-fn ManagedTargetFacts(target: TargetAccess) -> Element {
+fn ManagedTargetConfiguration(
+    target: TargetAccess,
+    backend: Signal<RemoteControlBackend>,
+    activity_log: Signal<Vec<ActivityLogEntry>>,
+    mut targets: Signal<Vec<TargetAccess>>,
+    target_aliases: Signal<HashMap<String, String>>,
+) -> Element {
+    let target_id = target.id.clone();
+    let configure_title = target_aliases()
+        .get(&target.id)
+        .map(|alias| alias.trim())
+        .filter(|alias| !alias.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| target_display_name(&target));
+    let mut configuring = use_signal(|| false);
+    let mut transport_draft = use_signal(|| RemoteControlNetworkTransport::Disabled);
+    let mut connect_remaining = use_signal(|| target.monitor_remaining_secs);
+    let mut saving = use_signal(|| false);
+    use_effect({
+        let remaining = target.monitor_remaining_secs;
+        move || {
+            connect_remaining.set(remaining);
+        }
+    });
+    let tick_stop = use_hook(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)));
+    let tick_cancel = tick_stop.clone();
+    use_drop(move || {
+        tick_cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    use_hook({
+        let stop = tick_stop.clone();
+        let target_id = target_id.clone();
+        move || {
+            let stop = stop.clone();
+            let target_id = target_id.clone();
+            spawn(async move {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let remaining = backend().monitor_remaining_secs(&target_id);
+                    if connect_remaining() != remaining {
+                        connect_remaining.set(remaining);
+                    }
+                    if remaining == 0 && configuring() {
+                        configuring.set(false);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            });
+        }
+    });
+
+    let baseline_transport = targets()
+        .iter()
+        .find(|item| item.id == target_id)
+        .and_then(|item| item.network_transport)
+        .or(target.network_transport);
+    let dirty = baseline_transport.is_some_and(|transport| transport != transport_draft());
+
     rsx! {
-        dl { class: "facts",
-            if let Some(version) = target.build_version.as_deref().filter(|text| !text.is_empty()) {
-                div { dt { "PRNS" } dd { "{version}" } }
-            }
-            if let Some(battery) = target.battery.as_deref().filter(|text| !text.is_empty()) {
-                div { dt { "Battery" } dd { "{battery}" } }
-            }
-            div { dt { "Address" } dd { "{target.id}" } }
-            div {
-                dt { "Announce" }
-                dd {
-                    if let Some(path) = target.path.as_ref() {
-                        "{path.announced_at}"
-                    } else {
-                        "Not heard yet"
+        div { class: "target-section",
+            h3 { class: "target-section-title", "Configuration" }
+            if connect_remaining() > 0 {
+                div { class: if configuring() { "interface-toolbar editing" } else { "interface-toolbar" },
+                    div { class: "toolbar-track",
+                        div { class: "toolbar-pane",
+                            button {
+                                class: "button",
+                                r#type: "button",
+                                onclick: {
+                                    let target_id = target_id.clone();
+                                    move |_| {
+                                        if let Some(transport) = targets()
+                                            .iter()
+                                            .find(|item| item.id == target_id)
+                                            .and_then(|item| item.network_transport)
+                                        {
+                                            transport_draft.set(transport);
+                                        }
+                                        configuring.set(true);
+                                        let target_id = target_id.clone();
+                                        let backend = backend();
+                                        spawn(async move {
+                                            if let Ok(transport) =
+                                                backend.describe_network_transport(&target_id).await
+                                            {
+                                                targets.write().iter_mut().filter(|item| item.id == target_id).for_each(
+                                                    |item| item.network_transport = Some(transport),
+                                                );
+                                                transport_draft.set(transport);
+                                            }
+                                        });
+                                    }
+                                },
+                                "Configure"
+                            }
+                        }
+                        div { class: "toolbar-pane",
+                            button {
+                                class: "button",
+                                disabled: saving(),
+                                r#type: "button",
+                                onclick: {
+                                    let target_id = target_id.clone();
+                                    let fallback = target.network_transport;
+                                    move |_| {
+                                        let baseline = targets()
+                                            .iter()
+                                            .find(|item| item.id == target_id)
+                                            .and_then(|item| item.network_transport)
+                                            .or(fallback);
+                                        if baseline.is_some_and(|transport| transport != transport_draft()) {
+                                            if let Some(transport) = baseline {
+                                                transport_draft.set(transport);
+                                            }
+                                        }
+                                        configuring.set(false);
+                                    }
+                                },
+                                if dirty {
+                                    "Cancel"
+                                } else {
+                                    "Back"
+                                }
+                            }
+                            button {
+                                class: if saving() { "button busy" } else { "button" },
+                                disabled: !dirty || saving(),
+                                r#type: "button",
+                                aria_busy: if saving() { "true" } else { "false" },
+                                onclick: {
+                                    let target_id = target_id.clone();
+                                    let fallback = target.network_transport;
+                                    move |_| {
+                                        let baseline = targets()
+                                            .iter()
+                                            .find(|item| item.id == target_id)
+                                            .and_then(|item| item.network_transport)
+                                            .or(fallback);
+                                        let dirty_now = baseline
+                                            .is_some_and(|transport| transport != transport_draft());
+                                        if saving() || !dirty_now {
+                                            return;
+                                        }
+                                        let target_id = target_id.clone();
+                                        let transport = transport_draft();
+                                        let backend = backend();
+                                        saving.set(true);
+                                        spawn(async move {
+                                            match backend.set_network_transport(&target_id, transport).await {
+                                                Ok(()) => {
+                                                    targets.write().iter_mut().filter(|item| item.id == target_id).for_each(
+                                                        |item| item.network_transport = Some(transport),
+                                                    );
+                                                    configuring.set(false);
+                                                    push_activity(
+                                                        activity_log,
+                                                        format!(
+                                                            "Set transport on {target_id} to {}.",
+                                                            network_transport_label(transport)
+                                                        ),
+                                                    );
+                                                }
+                                                Err(error) => push_activity(
+                                                    activity_log,
+                                                    format!("Configure transport failed: {error}"),
+                                                ),
+                                            }
+                                            saving.set(false);
+                                        });
+                                    }
+                                },
+                                if saving() {
+                                    span { class: "spinner", aria_hidden: "true" }
+                                    "Saving"
+                                } else {
+                                    "Save"
+                                }
+                            }
+                        }
                     }
                 }
             }
-            div {
-                dt { "Route" }
-                dd { {format_target_route(target.path.as_ref())} }
+            div { class: if configuring() { "deck editing" } else { "deck" },
+                div { class: "deck-track",
+                    div { class: "deck-pane",
+                        dl { class: "facts",
+                            if let Some(version) = target.build_version.as_deref().filter(|text| !text.is_empty()) {
+                                div { dt { "PRNS" } dd { "{version}" } }
+                            }
+                            if let Some(battery) = target.battery.as_deref().filter(|text| !text.is_empty()) {
+                                div { dt { "Battery" } dd { "{battery}" } }
+                            }
+                            div { dt { "Address" } dd { "{target.id}" } }
+                            if let Some(transport) = target.network_transport {
+                                div { dt { "Transport" } dd { "{network_transport_label(transport)}" } }
+                            }
+                            div {
+                                dt { "Announce" }
+                                dd {
+                                    if let Some(path) = target.path.as_ref() {
+                                        "{path.announced_at}"
+                                    } else {
+                                        "Not heard yet"
+                                    }
+                                }
+                            }
+                            div {
+                                dt { "Route" }
+                                dd { {format_target_route(target.path.as_ref())} }
+                            }
+                        }
+                    }
+                    div { class: "deck-pane",
+                        div { class: "edit-card",
+                            h3 { "Configure {configure_title}" }
+                            dl { class: "facts",
+                                div {
+                                    class: if dirty { "changed" } else { "" },
+                                    dt { "Transport" }
+                                    dd {
+                                        select {
+                                            value: "{transport_draft().wire_value()}",
+                                            disabled: saving(),
+                                            onchange: move |event| {
+                                                let Some(transport) = event
+                                                    .value()
+                                                    .parse::<u8>()
+                                                    .ok()
+                                                    .and_then(RemoteControlNetworkTransport::from_wire)
+                                                else {
+                                                    return;
+                                                };
+                                                transport_draft.set(transport);
+                                            },
+                                            for option in RemoteControlNetworkTransport::ALL {
+                                                option {
+                                                    value: "{option.wire_value()}",
+                                                    selected: transport_draft() == option,
+                                                    "{network_transport_label(option)}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn AwaitingPairingActions(
+    target_id: String,
+    pairing_expires_in_secs: u32,
+    backend: Signal<RemoteControlBackend>,
+    activity_log: Signal<Vec<ActivityLogEntry>>,
+    mut targets: Signal<Vec<TargetAccess>>,
+    mut selected_target: Signal<String>,
+    mut expanded_targets: Signal<HashSet<String>>,
+    mut pairing: Signal<PairingState>,
+    mut pairing_error: Signal<String>,
+    mut pairing_target: Signal<String>,
+    mut invitation_code: Signal<String>,
+) -> Element {
+    let mut open_remaining = use_signal(|| pairing_expires_in_secs);
+    use_effect(move || {
+        open_remaining.set(pairing_expires_in_secs);
+    });
+    let tick_stop = use_hook(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)));
+    let tick_cancel = tick_stop.clone();
+    use_drop(move || {
+        tick_cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    use_hook({
+        let stop = tick_stop.clone();
+        let target_id = target_id.clone();
+        move || {
+            let stop = stop.clone();
+            let target_id = target_id.clone();
+            spawn(async move {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let remaining = backend().pairing_expires_in_secs(&target_id).unwrap_or(0);
+                    if open_remaining() != remaining {
+                        open_remaining.set(remaining);
+                        targets
+                            .write()
+                            .iter_mut()
+                            .filter(|item| item.id == target_id)
+                            .for_each(|item| item.pairing_expires_in_secs = Some(remaining));
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            });
+        }
+    });
+    rsx! {
+        div { class: "target-controller-actions",
+            span { class: "open-window", "{format_pairing_open_label(open_remaining())}" }
+            button {
+                class: "button danger",
+                onclick: {
+                    let target = target_id.clone();
+                    move |_| {
+                        let target = target.clone();
+                        let backend = backend();
+                        spawn(async move {
+                            match backend.dismiss_pairing_advertisement(&target).await {
+                                Ok(()) => {
+                                    // Always drop local pairing UI for this row —
+                                    // including WaitingForTarget after Approve.
+                                    if pairing_target() == target
+                                        || matches!(
+                                            pairing(),
+                                            PairingState::WaitingForTarget
+                                                | PairingState::AwaitingConfirmation { .. }
+                                                | PairingState::Connecting
+                                        )
+                                    {
+                                        pairing.set(PairingState::Idle);
+                                        pairing_error.set(String::new());
+                                        pairing_target.set(String::new());
+                                        invitation_code.set(String::new());
+                                    }
+                                    expanded_targets.write().remove(&target);
+                                    targets.write().retain(|item| item.id != target);
+                                    if selected_target() == target {
+                                        selected_target.set(
+                                            targets()
+                                                .iter()
+                                                .map(|item| item.id.clone())
+                                                .next()
+                                                .unwrap_or_default(),
+                                        );
+                                    }
+                                    push_activity(
+                                        activity_log,
+                                        format!("Dismissed pairing advertisement {target}."),
+                                    );
+                                }
+                                Err(error) => push_activity(
+                                    activity_log,
+                                    format!("Dismiss failed: {error}"),
+                                ),
+                            }
+                        });
+                    }
+                },
+                "Dismiss"
             }
         }
     }
@@ -1179,6 +1495,8 @@ fn ControllerTargetActions(
                         }
                         connect_remaining.set(backend.monitor_remaining_secs(&target));
                         if !pairing_in_progress(&pairing()) {
+                            // Inventory (build / transport / power / peers) runs only here
+                            // and on explicit refresh — not on the roster UI tick.
                             load_interfaces_for_target(
                                 backend,
                                 target,
@@ -1325,6 +1643,29 @@ fn TargetControls(
                 } else {
                     "Sleep"
                 }
+            }
+            button {
+                class: "button danger",
+                onclick: {
+                    let target = target_id.clone();
+                    move |_| {
+                        let target = target.clone();
+                        let backend = backend();
+                        spawn(async move {
+                            match backend.reset(&target).await {
+                                Ok(()) => push_activity(
+                                    activity_log,
+                                    format!("Reset requested for {target}."),
+                                ),
+                                Err(error) => push_activity(
+                                    activity_log,
+                                    format!("Reset failed: {error}"),
+                                ),
+                            }
+                        });
+                    }
+                },
+                "Reset"
             }
         }
     }
@@ -1926,7 +2267,30 @@ fn InterfaceAccordion(
                                         }
                                         span { class: "twisty-address", "{address}" }
                                     }
-                                    span { class: "status", {power_label(&entry.power)} }
+                                }
+                                button {
+                                    class: if matches!(entry.power, InterfacePower::On) {
+                                        "button primary interface-power"
+                                    } else {
+                                        "button interface-power"
+                                    },
+                                    r#type: "button",
+                                    onclick: {
+                                        let interface_id = entry.id.clone();
+                                        let scope = scope.clone();
+                                        let host = host.clone();
+                                        move |_| {
+                                            toggle_interface_power(
+                                                host.clone(),
+                                                scope.clone(),
+                                                interface_id.clone(),
+                                                backend(),
+                                                interfaces_by_target,
+                                                activity_log,
+                                            );
+                                        }
+                                    },
+                                    "{start_stop_label(&entry.power)}"
                                 }
                                 RefreshButton {
                                     label: format!("Refresh {}", entry.name),
@@ -1950,26 +2314,6 @@ fn InterfaceAccordion(
                                         div { class: if configuring { "interface-toolbar editing" } else { "interface-toolbar" },
                                             div { class: "toolbar-track",
                                                 div { class: "toolbar-pane",
-                                                    button {
-                                                        class: "button",
-                                                        r#type: "button",
-                                                        onclick: {
-                                                            let interface_id = entry.id.clone();
-                                                            let scope = scope.clone();
-                                                            let host = host.clone();
-                                                            move |_| {
-                                                                toggle_interface_power(
-                                                                    host.clone(),
-                                                                    scope.clone(),
-                                                                    interface_id.clone(),
-                                                                    backend(),
-                                                                    interfaces_by_target,
-                                                                    activity_log,
-                                                                );
-                                                            }
-                                                        },
-                                                        "{start_stop_label(&entry.power)}"
-                                                    }
                                                     button {
                                                         class: "button",
                                                         r#type: "button",
@@ -2104,7 +2448,6 @@ fn InterfaceAccordion(
                                                                     li { class: "peer-card",
                                                                         div { class: "peer-head",
                                                                             div { class: "peer-title",
-                                                                                span { class: "name", "{peer.name}" }
                                                                                 input {
                                                                                     class: "peer-alias",
                                                                                     r#type: "text",
@@ -2151,6 +2494,7 @@ fn InterfaceAccordion(
                                                                                         }
                                                                                     },
                                                                                 }
+                                                                                span { class: "peer-subtitle", "{peer.name}" }
                                                                             }
                                                                         }
                                                                         dl { class: "facts",
@@ -2395,7 +2739,10 @@ fn InterfaceAccordion(
                                                                                         let key = key.clone();
                                                                                         let saved = entry.clone();
                                                                                         move |event| {
-                                                                                            let Some(region) = region_from_label(&event.value()) else {
+                                                                                            let Some(region) = Region::ALL
+                                                                                                .into_iter()
+                                                                                                .find(|region| region.label() == event.value())
+                                                                                            else {
                                                                                                 return;
                                                                                             };
                                                                                             write_lora_draft(&mut drafts, &mut save_notices, &key, &saved, |profile| {
@@ -2403,10 +2750,10 @@ fn InterfaceAccordion(
                                                                                             });
                                                                                         }
                                                                                     },
-                                                                                    for region in region_choices() {
+                                                                                    for region in Region::ALL {
                                                                                         option {
                                                                                             value: "{region.label()}",
-                                                                                            selected: profile.region() == region,
+                                                                                            selected: profile.region() == SubGRegion::Regulated(region),
                                                                                             "{region.label()}"
                                                                                         }
                                                                                     }
@@ -2497,7 +2844,14 @@ fn InterfaceAccordion(
                                                                                                 return;
                                                                                             };
                                                                                             write_lora_draft(&mut drafts, &mut save_notices, &key, &saved, |profile| {
-                                                                                                apply_lora_spreading_factor(profile, spreading_factor)
+                                                                                                let Modulation::Lora { bandwidth, coding_rate, .. } =
+                                                                                                    profile.modulation();
+                                                                                                set_lora_modulation(
+                                                                                                    profile,
+                                                                                                    spreading_factor,
+                                                                                                    bandwidth,
+                                                                                                    coding_rate,
+                                                                                                )
                                                                                             });
                                                                                         }
                                                                                     },
@@ -2531,7 +2885,14 @@ fn InterfaceAccordion(
                                                                                                 return;
                                                                                             };
                                                                                             write_lora_draft(&mut drafts, &mut save_notices, &key, &saved, |profile| {
-                                                                                                apply_lora_bandwidth(profile, bandwidth)
+                                                                                                let Modulation::Lora { spreading_factor, coding_rate, .. } =
+                                                                                                    profile.modulation();
+                                                                                                set_lora_modulation(
+                                                                                                    profile,
+                                                                                                    spreading_factor,
+                                                                                                    bandwidth,
+                                                                                                    coding_rate,
+                                                                                                )
                                                                                             });
                                                                                         }
                                                                                     },
@@ -2565,7 +2926,14 @@ fn InterfaceAccordion(
                                                                                                 return;
                                                                                             };
                                                                                             write_lora_draft(&mut drafts, &mut save_notices, &key, &saved, |profile| {
-                                                                                                apply_lora_coding_rate(profile, coding_rate)
+                                                                                                let Modulation::Lora { spreading_factor, bandwidth, .. } =
+                                                                                                    profile.modulation();
+                                                                                                set_lora_modulation(
+                                                                                                    profile,
+                                                                                                    spreading_factor,
+                                                                                                    bandwidth,
+                                                                                                    coding_rate,
+                                                                                                )
                                                                                             });
                                                                                         }
                                                                                     },
@@ -2663,9 +3031,40 @@ fn PairingPanel(
     mut interfaces_by_target: Signal<HashMap<String, LoadedInterfaces>>,
     backend: Signal<RemoteControlBackend>,
 ) -> Element {
+    let initial_open = targets()
+        .iter()
+        .find(|item| item.id == target_id)
+        .and_then(|item| item.pairing_expires_in_secs)
+        .unwrap_or(0);
+    let mut open_remaining = use_signal(|| initial_open);
+    let tick_stop = use_hook(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)));
+    let tick_cancel = tick_stop.clone();
+    use_drop(move || {
+        tick_cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    use_hook({
+        let stop = tick_stop.clone();
+        let target_id = target_id.clone();
+        move || {
+            let stop = stop.clone();
+            let target_id = target_id.clone();
+            spawn(async move {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let remaining = backend().pairing_expires_in_secs(&target_id).unwrap_or(0);
+                    if open_remaining() != remaining {
+                        open_remaining.set(remaining);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            });
+        }
+    });
     rsx! {
         div { class: "stack",
-            p { class: "note", "This announcement is not paired yet. Enter the eight invitation digits on the target right now. Hex case does not matter. After a flash or a new Pair remote, use this newest row — an older Hopspot line is a different destination." }
+            if matches!(pairing(), PairingState::Idle | PairingState::Connecting) {
+                p { class: "note", "This announcement is not paired yet. Enter the eight invitation digits shown on the OLED right now. Hex case does not matter. Awaiting rows are newest-first; use the one with the most open time left after a fresh Pair remote." }
+                p { class: "note", "Open window remaining: {format_pairing_open_label(open_remaining())} (~3 minutes from Pair remote)." }
+            }
             if !pairing_error().is_empty() {
                 p { class: "error", "{pairing_error}" }
             }
@@ -2719,9 +3118,9 @@ fn PairingPanel(
             }
             if let PairingState::AwaitingConfirmation { digits } = pairing() {
                 div {
-                    p { class: "note", "Confirm these digits match the target (`prnsd pairing status`), then approve on either side:" }
+                    p { class: "note", "Confirm these digits match the OLED, then Approve here and Yes on the face (either order):" }
                     p { class: "digits", "{digits}" }
-                    p { class: "note", "Approve here and run `prnsd pairing approve` in either order. Both must finish before the attempt window ends (~2 minutes after digits appear)." }
+                    p { class: "note", "Both sides must finish before the attempt window ends (~2 minutes after digits appear)." }
                     div { class: "actions",
                         button {
                             class: "button primary",
@@ -2799,7 +3198,7 @@ fn PairingPanel(
                 }
             }
             if pairing() == PairingState::WaitingForTarget {
-                p { class: "note", "Waiting for the target to approve. On prnsd run: prnsd pairing approve" }
+                p { class: "note", "Controller Approve sent Commit. If the OLED already said Yes, waiting for the board to finish writing the grant and return Completed — not another approve. This can take a bit; a Timeout here means Completed never arrived." }
             }
             if pairing() == PairingState::Approved {
                 p { class: "status online", "Pairing complete. Expand the paired target to manage interfaces." }
@@ -3151,9 +3550,19 @@ fn FlashSection(
     #[cfg(not(target_os = "android"))]
     {
         let mut probable_slugs = use_signal(Vec::<String>::new);
+        let downloading = use_signal(|| false);
+        let importing = use_signal(|| false);
+        let exporting = use_signal(|| false);
+        let building = use_signal(|| false);
+        let mut build_status = use_signal(String::new);
+        let catalog_tick = use_signal(|| 0u64);
+        let published_tips = use_signal(|| None::<crate::flash::PublishedChannelTips>);
+        let mut check_error = use_signal(|| None::<String>);
+        let checkout_available = crate::flash::checkout_available();
         let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stop = cancelled.clone();
         let poll = cancelled.clone();
+        let check_poll = cancelled.clone();
         use_drop(move || {
             stop.store(true, std::sync::atomic::Ordering::Relaxed);
         });
@@ -3175,9 +3584,51 @@ fn FlashSection(
                 }
             });
         });
+        use_effect(move || {
+            let cancelled = check_poll.clone();
+            let mut published_tips = published_tips;
+            spawn(async move {
+                loop {
+                    if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    let result =
+                        tokio::task::spawn_blocking(|| crate::flash::check_published_tips(None))
+                            .await;
+                    if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    match result {
+                        Ok(Ok(tips)) => {
+                            published_tips.set(Some(tips));
+                            check_error.set(None);
+                        }
+                        Ok(Err(error)) => {
+                            if published_tips().as_ref().is_none_or(|tips| tips.is_empty()) {
+                                check_error.set(Some(error.to_string()));
+                            }
+                        }
+                        Err(error) => {
+                            if published_tips().as_ref().is_none_or(|tips| tips.is_empty()) {
+                                check_error.set(Some(error.to_string()));
+                            }
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(30 * 60)).await;
+                }
+            });
+        });
         let probable = probable_slugs();
         let mut boards = crate::flash::catalog_boards().unwrap_or_default();
         boards.sort_by_key(|board| !probable.iter().any(|slug| slug == &board.slug));
+        let update_note = match (published_tips().as_ref(), check_error().as_ref()) {
+            (Some(tips), _) => tips.summary_note(),
+            (None, Some(_)) => Some(
+                "Could not reach the published channels yet — Import and local images still work."
+                    .to_string(),
+            ),
+            (None, None) => Some("Checking for published updates…".to_string()),
+        };
         rsx! {
             div { class: "heading-row",
                 h1 { "Flash" }
@@ -3187,12 +3638,18 @@ fn FlashSection(
                 }
             }
             div { class: "section-intro",
-                p { class: "lead", "Select a board to open its flash options. Fill in station Wi-Fi, LoRa, and any TCP target, then flash this checkout’s firmware. The board is enrolled as a Managed Node for this Operator — no invitation code." }
+                p { class: "lead", "Select a board, open Configure and flash to pick a firmware image and options, then Flash. Enrollment writes this Operator’s grant when the board supports it." }
+                if let Some(note) = update_note {
+                    p { class: "note", "{note}" }
+                }
+                if !checkout_available {
+                    p { class: "note", "On Configure and flash, choose a published tip or Import a shared artifact. Build is available when Controller detects a Personal Reticulum checkout." }
+                }
                 if !probable.is_empty() {
                     p { class: "note", "A connected bootloader or USB device matches the highlighted boards. Confirm the model if more than one lights up — some boards share a Board-ID or an ESP USB identity." }
                 }
                 if flash_info() {
-                    p { class: "note info-note", "Desktop only. Firmware is built from this repository via hopspot-flash. UF2 and ESP boards also receive a Remote Control identity and this app’s allow-list grant. The T1000-E serial DFU path flashes firmware but still needs pairing for enrollment. Highlighted rows are a connected UF2 drive or USB identity, not a firmware choice. ESP detection uses Espressif native USB and does not reset the chip. An empty SSID leaves any existing station credentials in place." }
+                    p { class: "note info-note", "Desktop only. Configure and flash uses an image dropdown (stable tip, preview tip, then local catalog images) plus Import, Build (checkout), and Export (shareable zip). Tips fetch on select if needed. Flash uses --candidate for published images and --local-build for local catalog images (rebuild from checkout). Imported/bundled unsigned images need Build first. Set HOPSPOT_FLASH or put hopspot-flash on PATH (checkout cargo fallback still works). PRNS_CONTROLLER_FLASH_LOCAL_BUILD=1 remains an emergency compile-at-flash escape hatch. UF2 and ESP boards can also receive a Remote Control identity and this app’s allow-list grant. An empty SSID leaves any existing station credentials in place." }
                 }
             }
             div { class: "accordion",
@@ -3207,6 +3664,27 @@ fn FlashSection(
                             .get(&slug)
                             .cloned()
                             .unwrap_or_default();
+                        let catalog_image = {
+                            let _ = catalog_tick();
+                            crate::image_catalog::current_image(&slug).ok().flatten()
+                        };
+                        let image_badge = crate::flash::catalog_image_badge(catalog_image.as_ref());
+                        let pick_options = crate::flash::image_pick_options(
+                            &slug,
+                            published_tips().as_ref(),
+                        )
+                        .unwrap_or_default();
+                        let pick_value = crate::flash::selected_image_pick_value(
+                            catalog_image.as_ref(),
+                            &pick_options,
+                        );
+                        let flash_busy = flashing()
+                            || downloading()
+                            || importing()
+                            || exporting()
+                            || building();
+                        let flash_has_image = catalog_image.is_some()
+                            || std::env::var_os("PRNS_CONTROLLER_FLASH_LOCAL_BUILD").is_some();
                         let interfaces = board.interfaces.join(", ");
                         let item_class = match (is_selected, is_probable) {
                             (true, true) => "accordion-item open probable",
@@ -3261,6 +3739,7 @@ fn FlashSection(
                                                         disabled: flashing(),
                                                         onclick: move |_| {
                                                             flash_configuring.set(false);
+                                                            build_status.set(String::new());
                                                             clear_flash_progress(flash_progress, flash_status);
                                                         },
                                                         "Back"
@@ -3268,12 +3747,13 @@ fn FlashSection(
                                                     button {
                                                         class: if flashing() { "button busy" } else { "button" },
                                                         r#type: "button",
-                                                        disabled: flashing(),
+                                                        disabled: flash_busy || !flash_has_image,
                                                         aria_busy: if flashing() { "true" } else { "false" },
                                                         onclick: {
                                                             let board = board.clone();
                                                             let form = form.clone();
                                                             move |_| {
+                                                                build_status.set(String::new());
                                                                 start_flash(
                                                                     board.slug.clone(),
                                                                     board.display_name.clone(),
@@ -3304,6 +3784,89 @@ fn FlashSection(
                                                 }
                                             }
                                         }
+                                        if configuring {
+                                            if let Some(progress) = flash_progress() {
+                                                {
+                                                    let stages = FlashStage::stages(progress.enrollable);
+                                                    rsx! {
+                                                        ol {
+                                                            class: "flash-stages",
+                                                            "data-count": "{stages.len()}",
+                                                            for stage in stages {
+                                                                {
+                                                                    let state = progress.stage_state(*stage);
+                                                                    let class = match state {
+                                                                        FlashStageState::Pending => "flash-stage pending",
+                                                                        FlashStageState::Current => "flash-stage current",
+                                                                        FlashStageState::Done => "flash-stage done",
+                                                                        FlashStageState::Failed => "flash-stage failed",
+                                                                        FlashStageState::Skipped => "flash-stage skipped",
+                                                                    };
+                                                                    rsx! {
+                                                                        li { class,
+                                                                            span { class: "dot" }
+                                                                            span { class: "label", "{stage.label()}" }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        p { class: "note flash-stage-detail",
+                                                            if let Some(percent) = progress.write_percent {
+                                                                "{progress.detail} ({percent}%)"
+                                                            } else {
+                                                                "{progress.detail}"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            {
+                                                let status = flash_status();
+                                                let repeats_progress = flash_progress().as_ref().is_some_and(|progress| {
+                                                    progress.detail == status
+                                                });
+                                                rsx! {
+                                                    if !status.is_empty() && !repeats_progress {
+                                                        p { class: "note flash-stage-detail", "{status}" }
+                                                    }
+                                                }
+                                            }
+                                            {
+                                                let offer = flash_progress()
+                                                    .as_ref()
+                                                    .and_then(FlashProgress::manage_offer)
+                                                    .cloned();
+                                                rsx! {
+                                                    if let Some(enrolled) = offer {
+                                                        div { class: "actions flash-manage",
+                                                            button {
+                                                                class: "button primary",
+                                                                r#type: "button",
+                                                                onclick: move |_| {
+                                                                    flash_configuring.set(false);
+                                                                    clear_flash_progress(
+                                                                        flash_progress,
+                                                                        flash_status,
+                                                                    );
+                                                                    open_enrolled_flash_target(
+                                                                        enrolled.clone(),
+                                                                        backend(),
+                                                                        screen,
+                                                                        drafts,
+                                                                        interfaces_by_target,
+                                                                        unsaved,
+                                                                        selected_target,
+                                                                        expanded_targets,
+                                                                    );
+                                                                },
+                                                                "Manage {enrolled.display_name}"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                         div { class: if configuring { "deck editing" } else { "deck" },
                                             div { class: "deck-track",
                                                 div { class: "deck-pane",
@@ -3311,6 +3874,7 @@ fn FlashSection(
                                                         div { dt { "Silicon" } dd { "{board.silicon}" } }
                                                         div { dt { "Transport" } dd { "{board.transport}" } }
                                                         div { dt { "Interfaces" } dd { "{interfaces}" } }
+                                                        div { dt { "Catalog" } dd { "{image_badge}" } }
                                                     }
                                                     ul {
                                                         for step in crate::flash::preparation_steps(&board.preparation_profile) {
@@ -3319,13 +3883,121 @@ fn FlashSection(
                                                     }
                                                     p { class: "note",
                                                         if board.enrollable {
-                                                            "Flash writes firmware plus this Operator’s grant. When that succeeds, this page offers to open the node under Managed Nodes."
+                                                            "Open Configure and flash to choose an image and options. Flash writes firmware plus this Operator’s grant. When that succeeds, this page offers to open the node under Managed Nodes."
                                                         } else {
-                                                            "This transport cannot write the enrollment vault. Flash firmware here, then pair the node from Managed Nodes."
+                                                            "Open Configure and flash to choose an image and options, then Flash. Pair the node from Managed Nodes afterward."
                                                         }
                                                     }
                                                 }
                                                 div { class: "deck-pane",
+                                                    div { class: "flash-image-pick",
+                                                        label { "Firmware image"
+                                                            select {
+                                                                value: "{pick_value}",
+                                                                disabled: flash_busy,
+                                                                onchange: {
+                                                                    let slug = slug.clone();
+                                                                    let pick_options = pick_options.clone();
+                                                                    move |event| {
+                                                                        let value = event.value();
+                                                                        let Some(option) =
+                                                                            crate::flash::image_pick_option_from_value(
+                                                                                &pick_options,
+                                                                                &value,
+                                                                            )
+                                                                            .cloned()
+                                                                        else {
+                                                                            return;
+                                                                        };
+                                                                        build_status.set(String::new());
+                                                                        start_select_image(
+                                                                            slug.clone(),
+                                                                            option,
+                                                                            flash_status,
+                                                                            downloading,
+                                                                            catalog_tick,
+                                                                            published_tips,
+                                                                        );
+                                                                    }
+                                                                },
+                                                                for option in pick_options.iter() {
+                                                                    option {
+                                                                        value: "{option.value()}",
+                                                                        selected: option.value() == pick_value,
+                                                                        "{option.label()}"
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        div { class: "flash-actions",
+                                                            button {
+                                                                class: "button",
+                                                                r#type: "button",
+                                                                disabled: flash_busy,
+                                                                onclick: {
+                                                                    let slug = slug.clone();
+                                                                    move |_| {
+                                                                        build_status.set(String::new());
+                                                                        start_import(
+                                                                            slug.clone(),
+                                                                            flash_status,
+                                                                            importing,
+                                                                            catalog_tick,
+                                                                        );
+                                                                    }
+                                                                },
+                                                                "Import"
+                                                            }
+                                                            button {
+                                                                class: "button",
+                                                                r#type: "button",
+                                                                disabled: flash_busy || !checkout_available,
+                                                                title: if checkout_available {
+                                                                    ""
+                                                                } else {
+                                                                    "Build requires a Personal Reticulum checkout"
+                                                                },
+                                                                onclick: {
+                                                                    let slug = slug.clone();
+                                                                    move |_| {
+                                                                        start_build(
+                                                                            slug.clone(),
+                                                                            build_status,
+                                                                            flash_status,
+                                                                            building,
+                                                                            catalog_tick,
+                                                                        );
+                                                                    }
+                                                                },
+                                                                "Build"
+                                                            }
+                                                            button {
+                                                                class: "button",
+                                                                r#type: "button",
+                                                                disabled: flash_busy || catalog_image.is_none(),
+                                                                onclick: {
+                                                                    let slug = slug.clone();
+                                                                    move |_| {
+                                                                        build_status.set(String::new());
+                                                                        start_export(
+                                                                            slug.clone(),
+                                                                            flash_status,
+                                                                            exporting,
+                                                                        );
+                                                                    }
+                                                                },
+                                                                "Export"
+                                                            }
+                                                        }
+                                                        {
+                                                            let status = build_status();
+                                                            rsx! {
+                                                                if !status.is_empty() {
+                                                                    p { class: "note flash-build-status", "{status}" }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                     {flash_options_form(
                                                         board.clone(),
                                                         slug.clone(),
@@ -3335,89 +4007,6 @@ fn FlashSection(
                                                     )}
                                                 }
                                             }
-                                        }
-                                        if configuring {
-                                        if let Some(progress) = flash_progress() {
-                                            {
-                                                let stages = FlashStage::stages(progress.enrollable);
-                                                rsx! {
-                                                    ol {
-                                                        class: "flash-stages",
-                                                        "data-count": "{stages.len()}",
-                                                        for stage in stages {
-                                                            {
-                                                                let state = progress.stage_state(*stage);
-                                                                let class = match state {
-                                                                    FlashStageState::Pending => "flash-stage pending",
-                                                                    FlashStageState::Current => "flash-stage current",
-                                                                    FlashStageState::Done => "flash-stage done",
-                                                                    FlashStageState::Failed => "flash-stage failed",
-                                                                    FlashStageState::Skipped => "flash-stage skipped",
-                                                                };
-                                                                rsx! {
-                                                                    li { class,
-                                                                        span { class: "dot" }
-                                                                        span { class: "label", "{stage.label()}" }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    p { class: "note flash-stage-detail",
-                                                        if let Some(percent) = progress.write_percent {
-                                                            "{progress.detail} ({percent}%)"
-                                                        } else {
-                                                            "{progress.detail}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        {
-                                            let status = flash_status();
-                                            let repeats_progress = flash_progress().as_ref().is_some_and(|progress| {
-                                                progress.detail == status
-                                            });
-                                            rsx! {
-                                                if !status.is_empty() && !repeats_progress {
-                                                    p { class: "note", "{status}" }
-                                                }
-                                            }
-                                        }
-                                        {
-                                            let offer = flash_progress()
-                                                .as_ref()
-                                                .and_then(FlashProgress::manage_offer)
-                                                .cloned();
-                                            rsx! {
-                                                if let Some(enrolled) = offer {
-                                                    div { class: "actions flash-manage",
-                                                        button {
-                                                            class: "button primary",
-                                                            r#type: "button",
-                                                            onclick: move |_| {
-                                                                flash_configuring.set(false);
-                                                                clear_flash_progress(
-                                                                    flash_progress,
-                                                                    flash_status,
-                                                                );
-                                                                open_enrolled_flash_target(
-                                                                    enrolled.clone(),
-                                                                    backend(),
-                                                                    screen,
-                                                                    drafts,
-                                                                    interfaces_by_target,
-                                                                    unsaved,
-                                                                    selected_target,
-                                                                    expanded_targets,
-                                                                );
-                                                            },
-                                                            "Manage {enrolled.display_name}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
                                         }
                                     }
                                 }
@@ -3535,7 +4124,10 @@ fn flash_options_form(
                         onchange: {
                             let slug = slug.clone();
                             move |event| {
-                                let Some(region) = region_from_label(&event.value()) else {
+                                let Some(region) = Region::ALL
+                                    .into_iter()
+                                    .find(|region| region.label() == event.value())
+                                else {
                                     return;
                                 };
                                 let mut next = flash_forms()
@@ -3546,7 +4138,7 @@ fn flash_options_form(
                                 flash_forms.write().insert(slug.clone(), next);
                             }
                         },
-                        for region in region_choices() {
+                        for region in Region::ALL {
                             option {
                                 value: "{region.label()}",
                                 selected: form.lora_region == region,
@@ -3592,6 +4184,173 @@ fn flash_options_form(
             }
         }
     }
+}
+
+#[cfg(not(target_os = "android"))]
+fn start_select_image(
+    slug: String,
+    option: crate::flash::ImagePickOption,
+    mut flash_status: Signal<String>,
+    mut downloading: Signal<bool>,
+    mut catalog_tick: Signal<u64>,
+    mut published_tips: Signal<Option<crate::flash::PublishedChannelTips>>,
+) {
+    downloading.set(true);
+    flash_status.set(format!("Selecting firmware for {slug}…"));
+    let (status_tx, mut status_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    spawn(async move {
+        while let Some(message) = status_rx.recv().await {
+            flash_status.set(message);
+        }
+    });
+    spawn(async move {
+        let result = tokio::task::spawn_blocking({
+            let slug = slug.clone();
+            let option = option.clone();
+            move || {
+                crate::flash::select_image_pick(&slug, &option, |message| {
+                    let _ = status_tx.send(message);
+                })
+            }
+        })
+        .await;
+        downloading.set(false);
+        match result {
+            Ok(Ok(image)) => {
+                catalog_tick.set(catalog_tick() + 1);
+                if image.provenance == crate::image_catalog::ImageProvenance::Published {
+                    let mut tips = published_tips().unwrap_or_default();
+                    tips.record_published_selection(&image);
+                    published_tips.set(Some(tips));
+                }
+                let badge = crate::flash::catalog_image_badge(Some(&image));
+                flash_status.set(format!("Selected {badge} for {slug}."));
+            }
+            Ok(Err(error)) => {
+                flash_status.set(format!("Image select failed: {error}"));
+            }
+            Err(error) => {
+                flash_status.set(format!("Image select failed: {error}"));
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "android"))]
+fn start_import(
+    slug: String,
+    mut flash_status: Signal<String>,
+    mut importing: Signal<bool>,
+    mut catalog_tick: Signal<u64>,
+) {
+    let Some(path) = crate::flash::pick_board_import_path() else {
+        return;
+    };
+    importing.set(true);
+    flash_status.set(format!("Importing firmware for {slug}…"));
+    spawn(async move {
+        let result = tokio::task::spawn_blocking({
+            let slug = slug.clone();
+            let path = path.clone();
+            move || crate::flash::import_board_image(&slug, &path)
+        })
+        .await;
+        importing.set(false);
+        match result {
+            Ok(Ok(image)) => {
+                catalog_tick.set(catalog_tick() + 1);
+                let badge = crate::flash::catalog_image_badge(Some(&image));
+                flash_status.set(format!("Imported {badge} for {slug}."));
+            }
+            Ok(Err(error)) => {
+                flash_status.set(format!("Import failed: {error}"));
+            }
+            Err(error) => {
+                flash_status.set(format!("Import failed: {error}"));
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "android"))]
+fn start_export(slug: String, mut flash_status: Signal<String>, mut exporting: Signal<bool>) {
+    let version = crate::image_catalog::current_image(&slug)
+        .ok()
+        .flatten()
+        .map(|image| image.version)
+        .unwrap_or_else(|| "firmware".into());
+    let Some(path) = crate::flash::pick_board_export_path(&slug, &version) else {
+        return;
+    };
+    exporting.set(true);
+    flash_status.set(format!("Exporting firmware for {slug}…"));
+    spawn(async move {
+        let result = tokio::task::spawn_blocking({
+            let slug = slug.clone();
+            let path = path.clone();
+            move || crate::flash::export_board_image(&slug, &path)
+        })
+        .await;
+        exporting.set(false);
+        match result {
+            Ok(Ok(exported)) => {
+                flash_status.set(format!(
+                    "Exported shareable bundle for {slug} to {}.",
+                    exported.display()
+                ));
+            }
+            Ok(Err(error)) => {
+                flash_status.set(format!("Export failed: {error}"));
+            }
+            Err(error) => {
+                flash_status.set(format!("Export failed: {error}"));
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "android"))]
+fn start_build(
+    slug: String,
+    mut build_status: Signal<String>,
+    mut flash_status: Signal<String>,
+    mut building: Signal<bool>,
+    mut catalog_tick: Signal<u64>,
+) {
+    building.set(true);
+    flash_status.set(String::new());
+    build_status.set(format!("Building local firmware for {slug}…"));
+    let (status_tx, mut status_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    spawn(async move {
+        while let Some(message) = status_rx.recv().await {
+            build_status.set(message);
+        }
+    });
+    spawn(async move {
+        let result = tokio::task::spawn_blocking({
+            let slug = slug.clone();
+            move || {
+                crate::flash::build_local_board(&slug, |message| {
+                    let _ = status_tx.send(message);
+                })
+            }
+        })
+        .await;
+        building.set(false);
+        match result {
+            Ok(Ok(image)) => {
+                catalog_tick.set(catalog_tick() + 1);
+                let badge = crate::flash::catalog_image_badge(Some(&image));
+                build_status.set(format!("Built {badge} for {slug}."));
+            }
+            Ok(Err(error)) => {
+                build_status.set(format!("Build failed: {error}"));
+            }
+            Err(error) => {
+                build_status.set(format!("Build failed: {error}"));
+            }
+        }
+    });
 }
 
 fn start_flash(
@@ -3650,7 +4409,7 @@ fn start_flash(
         let first_stage = if enrollable {
             FlashStage::Enroll
         } else {
-            FlashStage::Compile
+            FlashStage::Prepare
         };
         flash_progress.set(Some(FlashProgress::running(
             enrollable,
@@ -3691,8 +4450,8 @@ fn start_flash(
                     };
                     let _ = progress_tx.send(FlashProgress::running(
                         enrollable,
-                        FlashStage::Compile,
-                        FlashStage::Compile.label(),
+                        FlashStage::Prepare,
+                        FlashStage::Prepare.label(),
                     ));
                     crate::flash::flash_enrolled_board(
                         &slug,
@@ -3777,18 +4536,20 @@ fn start_flash(
                     }));
                 }
                 Ok(Err(error)) => {
-                    flash_status.set(format!("Flash failed: {error}"));
+                    let detail = format!("Flash failed: {error}");
+                    flash_status.set(detail.clone());
                     if let Some(mut progress) = flash_progress() {
                         progress.outcome = FlashRunOutcome::Failed;
-                        progress.detail = error.to_string();
+                        progress.detail = detail;
                         flash_progress.set(Some(progress));
                     }
                 }
                 Err(error) => {
-                    flash_status.set(format!("Flash failed: {error}"));
+                    let detail = format!("Flash failed: {error}");
+                    flash_status.set(detail.clone());
                     if let Some(mut progress) = flash_progress() {
                         progress.outcome = FlashRunOutcome::Failed;
-                        progress.detail = error.to_string();
+                        progress.detail = detail;
                         flash_progress.set(Some(progress));
                     }
                 }
@@ -4256,6 +5017,146 @@ fn target_display_name(target: &TargetAccess) -> String {
     }
 }
 
+fn network_transport_label(transport: RemoteControlNetworkTransport) -> &'static str {
+    match transport {
+        RemoteControlNetworkTransport::Enabled => "Enabled",
+        RemoteControlNetworkTransport::Disabled => "Disabled",
+    }
+}
+
+#[component]
+fn ControllerConfigurationPanel(
+    backend: Signal<RemoteControlBackend>,
+    activity_log: Signal<Vec<ActivityLogEntry>>,
+) -> Element {
+    let mut configuring = use_signal(|| false);
+    let mut transport_draft = use_signal(|| backend().local_network_transport());
+    let mut saving = use_signal(|| false);
+    let version = backend().local_build_version();
+    let transport = backend().local_network_transport();
+    let dirty = transport_draft() != transport;
+    rsx! {
+        div { class: "identity-block",
+            h2 { "Configuration" }
+            p { class: "note", "This Controller's PRNS build and whether it acts as a transport node on the mesh. Configure changes the transport setting for this app only." }
+            div { class: if configuring() { "interface-toolbar editing" } else { "interface-toolbar" },
+                div { class: "toolbar-track",
+                    div { class: "toolbar-pane",
+                        button {
+                            class: "button",
+                            r#type: "button",
+                            onclick: move |_| {
+                                transport_draft.set(backend().local_network_transport());
+                                configuring.set(true);
+                            },
+                            "Configure"
+                        }
+                    }
+                    div { class: "toolbar-pane",
+                        button {
+                            class: "button",
+                            disabled: saving(),
+                            r#type: "button",
+                            onclick: move |_| {
+                                if transport_draft() != backend().local_network_transport() {
+                                    transport_draft.set(backend().local_network_transport());
+                                }
+                                configuring.set(false);
+                            },
+                            if dirty {
+                                "Cancel"
+                            } else {
+                                "Back"
+                            }
+                        }
+                        button {
+                            class: if saving() { "button busy" } else { "button" },
+                            disabled: !dirty || saving(),
+                            r#type: "button",
+                            aria_busy: if saving() { "true" } else { "false" },
+                            onclick: move |_| {
+                                let next = transport_draft();
+                                if saving() || next == backend().local_network_transport() {
+                                    return;
+                                }
+                                saving.set(true);
+                                match backend().set_local_network_transport(next) {
+                                    Ok(()) => {
+                                        configuring.set(false);
+                                        push_activity(
+                                            activity_log,
+                                            format!(
+                                                "Set this Controller's transport to {}.",
+                                                network_transport_label(next)
+                                            ),
+                                        );
+                                    }
+                                    Err(error) => push_activity(
+                                        activity_log,
+                                        format!("Configure transport failed: {error}"),
+                                    ),
+                                }
+                                saving.set(false);
+                            },
+                            if saving() {
+                                span { class: "spinner", aria_hidden: "true" }
+                                "Saving"
+                            } else {
+                                "Save"
+                            }
+                        }
+                    }
+                }
+            }
+            div { class: if configuring() { "deck editing" } else { "deck" },
+                div { class: "deck-track",
+                    div { class: "deck-pane",
+                        dl { class: "facts",
+                            div { dt { "PRNS" } dd { "{version}" } }
+                            div { dt { "Transport" } dd { "{network_transport_label(transport)}" } }
+                        }
+                    }
+                    div { class: "deck-pane",
+                        div { class: "edit-card",
+                            h3 { "Configure This controller" }
+                            dl { class: "facts",
+                                div {
+                                    class: if dirty { "changed" } else { "" },
+                                    dt { "Transport" }
+                                    dd {
+                                        select {
+                                            value: "{transport_draft().wire_value()}",
+                                            disabled: saving(),
+                                            onchange: move |event| {
+                                                let Some(next) = event
+                                                    .value()
+                                                    .parse::<u8>()
+                                                    .ok()
+                                                    .and_then(RemoteControlNetworkTransport::from_wire)
+                                                else {
+                                                    return;
+                                                };
+                                                transport_draft.set(next);
+                                            },
+                                            for option in RemoteControlNetworkTransport::ALL {
+                                                option {
+                                                    value: "{option.wire_value()}",
+                                                    selected: transport_draft() == option,
+                                                    "{network_transport_label(option)}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn persist_target_alias(
     target_id: String,
     backend: RemoteControlBackend,
@@ -4292,16 +5193,13 @@ fn persist_target_alias(
         return;
     }
     peer_aliases.set(backend.peer_aliases());
-    match next {
-        Some(alias) => {
-            target_aliases.write().insert(target_id, alias.clone());
-            push_activity(activity_log, format!("Set alias for {label} to {alias}."));
-        }
-        None => {
-            target_aliases.write().remove(&target_id);
-            push_activity(activity_log, format!("Cleared alias for {label}."));
-        }
-    }
+    let applied = backend
+        .target_aliases()
+        .get(&target_id)
+        .cloned()
+        .unwrap_or_default();
+    target_aliases.write().insert(target_id, applied.clone());
+    push_activity(activity_log, format!("Set alias for {label} to {applied}."));
 }
 
 fn persist_manager_alias(
@@ -4454,7 +5352,8 @@ fn format_activity_clock(now: std::time::SystemTime) -> String {
     )
 }
 
-fn controller_identity_card(
+#[component]
+fn ControllerIdentityCard(
     identity: Result<ControllerIdentity, BackendError>,
     clone: Option<IdentityCloneView>,
     backend: Signal<RemoteControlBackend>,
@@ -4462,37 +5361,53 @@ fn controller_identity_card(
     focused_sibling_alias: Signal<Option<String>>,
     activity_log: Signal<Vec<ActivityLogEntry>>,
 ) -> Element {
+    let identity_info = use_signal(|| false);
     match identity {
         Ok(identity) => rsx! {
-            p { class: "note", "This PRNS Controller has two identities: Operator and Instance. Sibling PRNS Controllers (a process by which different PRNS Controllers can manage the same nodes) share Operator only. The instance identity is unique to this phone or computer." }
+            div { class: "heading-row",
+                h2 { "Identity management" }
+                InfoHint {
+                    label: "About Identity management".to_string(),
+                    open: identity_info,
+                }
+            }
+            if identity_info() {
+                p { class: "note", "This PRNS Controller has two identities: Controller and Sibling. Sibling PRNS Controllers (a process by which different PRNS Controllers can manage the same nodes) share Controller only. The Sibling identity is unique to this phone or computer." }
+            }
             div { class: "identity-block",
                 p { class: "identity-kicker", "Shared" }
-                h4 { "Operator" }
+                h4 { "Controller" }
                 p { class: "twisty-address",
-                    strong { "Operator identity hash: " }
+                    strong { "Controller identity hash: " }
                     "{identity.operator_hash}"
                 }
-                p { class: "note", "What pairing writes onto a managed node's controller allow-list. Sibling Controllers share this Operator. Adopting a sibling replaces that Controller's Operator with this one. The sibling Controller can then manage the same nodes as this one." }
-                p { class: "note", "For embedded devices that are configured for management during flashing, the full Operator key (not just the hash above) will be needed." }
+                if identity_info() {
+                    p { class: "note", "What pairing writes onto a managed node's controller allow-list. Sibling Controllers share this Controller identity. Adopting a sibling replaces that install's Controller identity with this one. The sibling Controller can then manage the same nodes as this one." }
+                    p { class: "note", "For embedded devices that are configured for management during flashing, the full Controller key (not just the hash above) will be needed." }
+                }
                 p { class: "allow-list-key",
-                    strong { "Operator Identity Key: " }
+                    strong { "Controller identity key: " }
                     "{identity.allow_list_key}"
                 }
-                p { class: "note", "Operator secret, minted on first launch if missing:" }
-                p { class: "twisty-address", "{identity.operator_secret_path}" }
-                p { class: "note", "Override the data directory with HOPSPOT_RC_DATA_DIR. Deleting the Operator file mints a new Operator; already-paired targets will not recognize it until you pair again." }
+                if identity_info() {
+                    p { class: "note", "Controller secret, minted on first launch if missing:" }
+                    p { class: "twisty-address", "{identity.operator_secret_path}" }
+                    p { class: "note", "Override the data directory with HOPSPOT_RC_DATA_DIR. Deleting the Controller file mints a new Controller; already-paired targets will not recognize it until you pair again." }
+                }
             }
             div { class: "identity-block",
                 p { class: "identity-kicker", "This install" }
-                h4 { "Instance" }
+                h4 { "Sibling" }
                 p { class: "twisty-address",
-                    strong { "Instance identity hash: " }
+                    strong { "Sibling identity hash: " }
                     "{identity.instance_hash}"
                 }
-                p { class: "note", "Unique to this phone or computer. Even after being adopted, sibling Controllers maintain their unique Instance identifiers. Node management data will sync between siblings using these unique identifiers." }
-                p { class: "note", "Instance secret:" }
-                p { class: "twisty-address", "{identity.instance_secret_path}" }
-                p { class: "note", "Override the data directory with HOPSPOT_RC_DATA_DIR. Deleting the Instance file mints a new install id and drops sibling sync." }
+                if identity_info() {
+                    p { class: "note", "Unique to this phone or computer. Even after being adopted, sibling Controllers maintain their unique Sibling identifiers. Node management data will sync between siblings using these unique identifiers." }
+                    p { class: "note", "Sibling secret:" }
+                    p { class: "twisty-address", "{identity.instance_secret_path}" }
+                    p { class: "note", "Override the data directory with HOPSPOT_RC_DATA_DIR. Deleting the Sibling file mints a new install id and drops sibling sync." }
+                }
             }
             SiblingControllersPanel {
                 clone,
@@ -4503,6 +5418,13 @@ fn controller_identity_card(
             }
         },
         Err(error) => rsx! {
+            div { class: "heading-row",
+                h2 { "Identity management" }
+                InfoHint {
+                    label: "About Identity management".to_string(),
+                    open: identity_info,
+                }
+            }
             p { class: "error", "Controller identity is unavailable: {error}" }
         },
     }
@@ -4523,7 +5445,7 @@ fn SiblingControllersPanel(
     rsx! {
         div { class: "identity-block",
             h3 { "Sibling Controllers" }
-            p { class: "note", "Other PRNS Controller installs that share this Operator. Managed node information sync uses their Instance ids. Configure adopts a new sibling over USB." }
+            p { class: "note", "Other PRNS Controller installs that share this Controller identity. Managed node information sync uses their Sibling ids. Configure adopts a new sibling over USB." }
             if let Some(clone) = clone.as_ref() {
                 if let Some(notice) = clone.notice.as_deref() {
                     p { class: "note", "{notice}" }
@@ -4556,7 +5478,12 @@ fn SiblingControllersPanel(
             div { class: if open { "deck editing" } else { "deck" },
                 div { class: "deck-track",
                     div { class: "deck-pane",
-                        {sibling_controller_list(clone.as_ref(), sibling_aliases)}
+                        {sibling_controller_list(
+                            clone.as_ref(),
+                            sibling_aliases,
+                            backend,
+                            activity_log,
+                        )}
                     }
                     div { class: "deck-pane",
                         {sibling_controller_editor(
@@ -4596,7 +5523,7 @@ fn sibling_presence_label(sibling: &SiblingControllerView) -> &'static str {
     if sibling.heard {
         "Online"
     } else {
-        "Not heard"
+        "Offline"
     }
 }
 
@@ -4611,6 +5538,8 @@ fn sibling_presence_class(sibling: &SiblingControllerView) -> &'static str {
 fn sibling_controller_list(
     clone: Option<&IdentityCloneView>,
     sibling_aliases: Signal<HashMap<String, String>>,
+    backend: Signal<RemoteControlBackend>,
+    activity_log: Signal<Vec<ActivityLogEntry>>,
 ) -> Element {
     let Some(clone) = clone else {
         return rsx! { p { class: "note", "Siblings are unavailable until the controller node starts." } };
@@ -4635,6 +5564,29 @@ fn sibling_controller_list(
                         }
                     }
                     p { class: "twisty-address", "{sibling.instance_hash}" }
+                    if sibling.is_self {
+                        div { class: "actions",
+                            button {
+                                class: "button",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    spawn(async move {
+                                        match backend().announce_this_controller().await {
+                                            Ok(()) => push_activity(
+                                                activity_log,
+                                                "Announced this controller's roster-sync destination.",
+                                            ),
+                                            Err(error) => push_activity(
+                                                activity_log,
+                                                format!("Announce failed: {error}"),
+                                            ),
+                                        }
+                                    });
+                                },
+                                "Announce"
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -4702,6 +5654,29 @@ fn sibling_controller_editor(
                         }
                     }
                     p { class: "twisty-address", "{sibling.instance_hash}" }
+                    if sibling.is_self {
+                        div { class: "actions",
+                            button {
+                                class: "button",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    spawn(async move {
+                                        match backend().announce_this_controller().await {
+                                            Ok(()) => push_activity(
+                                                activity_log,
+                                                "Announced this controller's roster-sync destination.",
+                                            ),
+                                            Err(error) => push_activity(
+                                                activity_log,
+                                                format!("Announce failed: {error}"),
+                                            ),
+                                        }
+                                    });
+                                },
+                                "Announce"
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -4959,13 +5934,6 @@ fn format_rate(bytes_per_sec: u32) -> String {
     format!("{}/s", format_byte_count(u64::from(bytes_per_sec)))
 }
 
-fn power_label(power: &InterfacePower) -> &'static str {
-    match power {
-        InterfacePower::On => "On",
-        InterfacePower::Off => "Off",
-    }
-}
-
 fn start_stop_label(power: &InterfacePower) -> &'static str {
     match power {
         InterfacePower::On => "Stop",
@@ -5051,6 +6019,9 @@ fn toggle_interface_power(
 
 fn format_approve_failure(error: &impl std::fmt::Display) -> String {
     let detail = error.to_string();
+    if detail.contains("Timeout") && detail.contains("AwaitingCompletion") {
+        return "Pairing approval failed: timed out waiting for Completed after mutual approve. Approve Yes on the OLED and Approve here after the six digits appear (either order). If that fails in about 13 seconds, this Controller build is stale — quit and reopen the rebuilt app. If it waits nearly two minutes then fails, the attempt window ended or the board never returned Completed; open a fresh Pair remote and try again.".to_string();
+    }
     if detail.contains("LinkClosed") || detail.contains("NoActiveAttempt") {
         return "Pairing approval failed: the pairing link closed during mutual approve (often because the target stalled while writing the grant). Rebuild this app and reflash the Hopspot target so Completed is sent before flash persist, then open a new Pair remote and try again.".to_string();
     }

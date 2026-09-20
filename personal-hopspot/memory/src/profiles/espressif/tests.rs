@@ -65,7 +65,7 @@ fn linker_counted_and_additional_reservations_stay_separate() {
         HELTEC_V4.reservation_totals(RECLAIMED_RAM),
         Ok(ReservationTotals {
             additional_bytes: 0,
-            linker_counted_bytes: 72 * KIB,
+            linker_counted_bytes: 56 * KIB,
             external_bytes: 0,
         })
     );

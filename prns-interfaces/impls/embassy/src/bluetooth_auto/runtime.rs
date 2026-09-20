@@ -23,7 +23,7 @@ use prns_core::interfaces::bluetooth_auto::{
 };
 use prns_core::interfaces::{
     BitrateBps, ConnectionState, DiscoveryGroupApplyOutcome, InterfaceId, InterfaceKind,
-    InterfaceStatus, DEFAULT_DISCOVERY_GROUP_HASH,
+    InterfaceStatus, RadioIndication, DEFAULT_DISCOVERY_GROUP_HASH,
 };
 use prns_runtime::atomic::AtomicU64;
 use prns_runtime::manifold::grant::FrameTarget;
@@ -43,6 +43,7 @@ const RADIO_CONTROL_REASON: &str = "BLE radio control failed";
 const INGRESS_PRESSURE_REASON: &str = "BLE receive pressure";
 const SETUP_FAILURE_REASON: &str = "BLE setup failed; retrying";
 const TRANSPORT_CLOSURE_REASON: &str = "BLE transport closed; retrying";
+const RADIO_UNPUBLISHED: u64 = u64::MAX;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BluetoothRecoveryReason {
@@ -99,6 +100,7 @@ pub struct BluetoothMemberStatus {
     rx: AtomicU64,
     tx: AtomicU64,
     active: AtomicBool,
+    radio: AtomicU64,
 }
 
 impl BluetoothMemberStatus {
@@ -109,21 +111,24 @@ impl BluetoothMemberStatus {
             rx: AtomicU64::new(0),
             tx: AtomicU64::new(0),
             active: AtomicBool::new(false),
+            radio: AtomicU64::new(RADIO_UNPUBLISHED),
         }
     }
 
-    fn assign(&self, id: InterfaceId) {
+    fn assign(&self, id: InterfaceId, peer_rssi: Option<i8>) {
         self.id.lock(|cell| cell.set(id));
         self.connection
             .store(ConnectionState::Connected.as_u8(), Ordering::Relaxed);
         self.rx.store_relaxed(0);
         self.tx.store_relaxed(0);
+        self.set_radio(RadioIndication::from_bluetooth_rssi(peer_rssi));
         self.active.store(true, Ordering::Relaxed);
     }
 
     fn retire(&self) {
         self.connection
             .store(ConnectionState::Disconnected.as_u8(), Ordering::Relaxed);
+        self.radio.store_relaxed(RADIO_UNPUBLISHED);
         self.active.store(false, Ordering::Relaxed);
     }
 
@@ -133,6 +138,12 @@ impl BluetoothMemberStatus {
 
     fn add_tx(&self, bytes: u64) {
         self.tx.fetch_add_relaxed(bytes);
+    }
+
+    fn set_radio(&self, indication: RadioIndication) {
+        let mut bytes = [0xff; 8];
+        let _ = indication.write_into(&mut bytes);
+        self.radio.store_relaxed(u64::from_be_bytes(bytes));
     }
 }
 
@@ -151,6 +162,17 @@ impl InterfaceStatus for BluetoothMemberStatus {
 
     fn tx_bytes(&self) -> u64 {
         self.tx.load_relaxed()
+    }
+
+    fn radio(&self) -> RadioIndication {
+        let packed = self.radio.load_relaxed();
+        if packed == RADIO_UNPUBLISHED {
+            return RadioIndication::for_kind(Some(InterfaceKind::BluetoothPeer));
+        }
+        match RadioIndication::parse(&packed.to_be_bytes()) {
+            Some((indication, _)) => indication,
+            None => RadioIndication::for_kind(Some(InterfaceKind::BluetoothPeer)),
+        }
     }
 }
 
@@ -1664,6 +1686,7 @@ async fn apply_settled<
                 slot,
                 address,
                 lane,
+                peer_rssi,
             } => {
                 if let Some(mut link) = held.take() {
                     if !matches!(lane, L2capPlan::None) {
@@ -1677,7 +1700,7 @@ async fn apply_settled<
                     fleet
                         .register_member(contract::descriptor(id, bitrate))
                         .await;
-                    status.member(slot).assign(id);
+                    status.member(slot).assign(id, peer_rssi);
                     status.republish_peer_count();
                     status.note_settled_link();
                     members[slot] = Some(Active {
@@ -2057,7 +2080,7 @@ mod tests {
             )
         );
 
-        status.member(0).assign(InterfaceId::new([11; 8]));
+        status.member(0).assign(InterfaceId::new([11; 8]), None);
         status.republish_peer_count();
         assert_eq!(status.connection(), ConnectionState::Connected);
         assert_eq!(status.failure_reason(), Some(SETUP_FAILURE_REASON));
@@ -2089,7 +2112,7 @@ mod tests {
         status.republish_peer_count();
         assert_eq!(status.connection(), ConnectionState::Reconnecting);
 
-        status.member(1).assign(InterfaceId::new([12; 8]));
+        status.member(1).assign(InterfaceId::new([12; 8]), None);
         status.republish_peer_count();
         status.note_settled_link();
         assert_eq!(

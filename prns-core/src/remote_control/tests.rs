@@ -432,6 +432,8 @@ fn protocol_discriminants_are_stable_typed_values() {
             RemoteControlRequestKind::InspectWifiTransaction,
             RemoteControlRequestKind::InventoryInterfaceDiscoveryGroups,
             RemoteControlRequestKind::ReplaceInterfaceDiscoveryGroups,
+            RemoteControlRequestKind::DescribeNetworkTransport,
+            RemoteControlRequestKind::SetNetworkTransport,
         ],
     );
     assert_eq!(
@@ -467,6 +469,8 @@ fn protocol_discriminants_are_stable_typed_values() {
             RemoteControlResponseKind::InspectWifiTransaction,
             RemoteControlResponseKind::InventoryInterfaceDiscoveryGroups,
             RemoteControlResponseKind::ReplaceInterfaceDiscoveryGroups,
+            RemoteControlResponseKind::DescribeNetworkTransport,
+            RemoteControlResponseKind::SetNetworkTransport,
             RemoteControlResponseKind::ProtocolError,
         ],
     );
@@ -585,6 +589,22 @@ fn protocol_discriminants_are_stable_typed_values() {
         0x10
     );
     assert_eq!(RemoteControlResponseKind::DescribePower.wire_value(), 0x11);
+    assert_eq!(
+        RemoteControlRequestKind::DescribeNetworkTransport.wire_value(),
+        0x1F
+    );
+    assert_eq!(
+        RemoteControlRequestKind::SetNetworkTransport.wire_value(),
+        0x20
+    );
+    assert_eq!(
+        RemoteControlResponseKind::DescribeNetworkTransport.wire_value(),
+        0x1F
+    );
+    assert_eq!(
+        RemoteControlResponseKind::SetNetworkTransport.wire_value(),
+        0x20
+    );
     assert_eq!(RemoteControlResponseKind::ProtocolError.wire_value(), 0xFF,);
     assert_eq!(
         RemoteControlProtocolErrorKind::MalformedRequest.wire_value(),
@@ -732,6 +752,45 @@ fn describe_power_carries_a_fixed_power_snapshot_and_rejects_trailers() {
 }
 
 #[test]
+fn describe_and_set_network_transport_round_trip() {
+    let request = RemoteControlRequest::DescribeNetworkTransport;
+    let mut request_bytes = [0u8; RemoteControlRequest::DescribeNetworkTransport.encoded_len()];
+    assert_eq!(
+        request.write_into(&mut request_bytes),
+        Ok(request.encoded_len())
+    );
+    assert_eq!(RemoteControlRequest::parse(&request_bytes), Ok(request));
+
+    let response = RemoteControlResponse::DescribeNetworkTransport(
+        crate::remote_control::RemoteControlNetworkTransport::Disabled,
+    );
+    let mut response_bytes = [0u8; RemoteControlResponse::MAX_ENCODED_LEN];
+    let written = response.write_into(&mut response_bytes).unwrap();
+    let encoded = response_bytes
+        .get(..written)
+        .expect("encode stays in buffer");
+    assert_eq!(RemoteControlResponse::parse(encoded), Ok(response));
+
+    let set = RemoteControlRequest::SetNetworkTransport {
+        transport: crate::remote_control::RemoteControlNetworkTransport::Enabled,
+    };
+    let mut set_bytes = [0u8; RemoteControlRequest::MAX_ENCODED_LEN];
+    let written = set.write_into(&mut set_bytes).unwrap();
+    assert_eq!(
+        RemoteControlRequest::parse(set_bytes.get(..written).expect("encode stays in buffer")),
+        Ok(set)
+    );
+    let set_response = RemoteControlResponse::SetNetworkTransport(
+        crate::remote_control::RemoteControlNetworkTransportOutcome::Applied,
+    );
+    let written = set_response.write_into(&mut response_bytes).unwrap();
+    let encoded = response_bytes
+        .get(..written)
+        .expect("encode stays in buffer");
+    assert_eq!(RemoteControlResponse::parse(encoded), Ok(set_response));
+}
+
+#[test]
 fn describe_request_round_trips_through_its_own_wire_shape() {
     let request = RemoteControlRequest::Describe;
     let mut bytes = [0u8; RemoteControlRequest::Describe.encoded_len()];
@@ -798,6 +857,20 @@ fn wifi_station_credentials_reject_empty_ssid_and_omit_password_from_inventory()
             .expect("a valid SSID fits its inventory field")
             .as_str(),
         "W,field-lab"
+    );
+    assert_eq!(
+        crate::remote_control::wifi_station_inventory_config_with_rssi("field-lab", Some(-67))
+            .expect("SSID plus RSSI fit the inventory field")
+            .as_str(),
+        "W,field-lab|R-67"
+    );
+    assert_eq!(
+        crate::remote_control::parse_wifi_station_ssid("W,field-lab|R-67"),
+        Some("field-lab")
+    );
+    assert_eq!(
+        crate::remote_control::parse_wifi_station_rssi_dbm("W,field-lab|R-67"),
+        Some(-67)
     );
     assert_eq!(
         crate::remote_control::wifi_station_inventory_config(&"s".repeat(33)),
@@ -1336,6 +1409,10 @@ fn inventory_power_and_sleep_messages_round_trip() {
             revision: RemoteControlWifiCredentialRevision::new(43).expect("nonzero revision"),
         },
         RemoteControlRequest::InspectWifiTransaction,
+        RemoteControlRequest::DescribeNetworkTransport,
+        RemoteControlRequest::SetNetworkTransport {
+            transport: crate::remote_control::RemoteControlNetworkTransport::Disabled,
+        },
     ] {
         let mut bytes = [0u8; RemoteControlRequest::MAX_ENCODED_LEN];
         let written = request.write_into(&mut bytes).unwrap();

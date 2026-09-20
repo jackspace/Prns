@@ -751,6 +751,9 @@ pub(super) async fn run_core<B: Esp32S3Board>(
                     let (token, command) = pending.into_parts();
                     let result = execute_hopspot_command!(snapshots, command);
                     REMOTE_CONTROL_COMMANDS.complete(token, result);
+                    screen::apply_pending_network_transport(|cmd| {
+                        let _ = PrnsNodeHandle::new(COMMANDS.sender(), &COMPLETION).issue(cmd);
+                    });
                     presentation_urgency = PresentationUrgency::Immediate;
                 }
                 Either4::Third(()) => {

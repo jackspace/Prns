@@ -388,6 +388,7 @@ fn settlement_kind(settlement: &Settlement) -> &'static str {
         Settlement::SettleRemoteControlControllerPairingPersistence(_) => {
             "settle_remote_control_controller_pairing_persistence"
         }
+        Settlement::SetNetworkTransport(_) => "set_network_transport",
     }
 }
 
@@ -429,6 +430,7 @@ fn settlement_outcome(settlement: &Settlement) -> &'static str {
             Ok(RemoteControlControllerPairingFinalization::PersistenceFailureRecorded { .. })
             | Err(_),
         ) => false,
+        Settlement::SetNetworkTransport(result) => result.is_ok(),
     };
     if succeeded {
         "succeeded"

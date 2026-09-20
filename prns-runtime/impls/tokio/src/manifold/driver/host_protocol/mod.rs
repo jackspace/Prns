@@ -26,6 +26,9 @@ use crate::runtime::{
 use crate::storage::TablePushError;
 use crate::units::RttMillis;
 use crate::wire::{DestinationHash, TransportId};
+use prns_core::remote_control::{
+    RemoteControlNetworkTransport, RemoteControlNetworkTransportOutcome,
+};
 use prns_runtime::runtime::{PersistedStateSnapshot, SelfRatchetSnapshot, SelfRatchetsSnapshot};
 
 #[allow(clippy::large_enum_variant)]
@@ -67,6 +70,13 @@ pub enum HostCommand {
     SetInterfaceMode {
         id: InterfaceId,
         mode: InterfaceMode,
+    },
+    DescribeNetworkTransport {
+        reply: oneshot::Sender<RemoteControlNetworkTransport>,
+    },
+    SetNetworkTransport {
+        transport: RemoteControlNetworkTransport,
+        reply: oneshot::Sender<RemoteControlNetworkTransportOutcome>,
     },
     DropRoute {
         destination: DestinationHash,

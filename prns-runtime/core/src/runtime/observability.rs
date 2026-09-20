@@ -49,6 +49,7 @@ prns_macros::iterable_enum! {
         ApproveRemoteControlControllerPairing,
         RejectRemoteControlControllerPairing,
         SettleRemoteControlControllerPairingPersistence,
+        SetNetworkTransport,
     }
 }
 
@@ -467,6 +468,13 @@ impl From<&Settlement> for SettledOperation {
                         },
                     ) => RuntimeOperationOutcome::DependencyFailed,
                     Err(failure) => RuntimeOperationOutcome::from(failure),
+                },
+            },
+            Settlement::SetNetworkTransport(result) => Self {
+                operation: Operation::SetNetworkTransport,
+                outcome: match result {
+                    Ok(()) => RuntimeOperationOutcome::Succeeded,
+                    Err(_) => RuntimeOperationOutcome::Rejected,
                 },
             },
         }

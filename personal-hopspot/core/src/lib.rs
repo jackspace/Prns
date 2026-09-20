@@ -11,6 +11,8 @@ mod flash_identity;
 mod identity;
 #[cfg(feature = "display")]
 mod mobile;
+#[cfg(feature = "embedded")]
+mod network_transport;
 pub mod node_pages;
 mod persistence;
 mod power_publish;
@@ -48,6 +50,10 @@ pub use mobile::{
     MobileEngineFailure, MobileEngineState, MobileInputCode, MOBILE_DARK_RGBA,
     MOBILE_DISCOVERY_GROUPS_WIRE_MAX_LEN, MOBILE_LIT_RGBA, MOBILE_PANEL_HEIGHT, MOBILE_PANEL_WIDTH,
     MOBILE_PIXEL_COUNT, MOBILE_RGBA_BYTES,
+};
+#[cfg(feature = "embedded")]
+pub use network_transport::{
+    apply_pending_network_transport, HopspotNetworkTransportGate, NETWORK_TRANSPORT,
 };
 pub use persistence::PersistenceState;
 pub use power_publish::{latest_power_snapshot, publish_power_snapshot};

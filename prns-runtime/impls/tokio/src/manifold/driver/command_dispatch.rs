@@ -15,6 +15,9 @@ use crate::runtime::{
     ClearAnnounceQueuesOutcome,
 };
 use crate::storage::StorageLayout;
+use prns_core::remote_control::{
+    RemoteControlNetworkTransport, RemoteControlNetworkTransportOutcome,
+};
 use prns_runtime::runtime::persistence_snapshots;
 
 use super::crypto_pool::CryptoPool;
@@ -560,6 +563,33 @@ where
             }
             HostCommand::SetInterfaceMode { id, mode } => {
                 topology.set_mode(id, mode);
+                CommandEffect::UNCHANGED
+            }
+            HostCommand::DescribeNetworkTransport { reply } => {
+                let transport = if engine.network_transport_enabled() {
+                    RemoteControlNetworkTransport::Enabled
+                } else {
+                    RemoteControlNetworkTransport::Disabled
+                };
+                let _ = reply.send(transport);
+                CommandEffect::UNCHANGED
+            }
+            HostCommand::SetNetworkTransport { transport, reply } => {
+                let network = match transport {
+                    RemoteControlNetworkTransport::Enabled => {
+                        crate::engine::NetworkTransport::Enabled
+                    }
+                    RemoteControlNetworkTransport::Disabled => {
+                        crate::engine::NetworkTransport::Disabled
+                    }
+                };
+                let outcome = match engine.set_network_transport(network) {
+                    Ok(()) => RemoteControlNetworkTransportOutcome::Applied,
+                    Err(crate::engine::SetNetworkTransportError::Unidentified) => {
+                        RemoteControlNetworkTransportOutcome::Unidentified
+                    }
+                };
+                let _ = reply.send(outcome);
                 CommandEffect::UNCHANGED
             }
             HostCommand::DropRoute { destination, reply } => {

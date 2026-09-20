@@ -17,6 +17,7 @@ pub(super) struct SeenPeer {
 pub(super) struct DialTarget {
     pub(super) kind: AddrKind,
     pub(super) addr: BdAddr,
+    pub(super) rssi: Option<i8>,
     transient_client_retries: TransientClientRetries,
 }
 
@@ -100,10 +101,11 @@ impl SightingAdmission {
 }
 
 impl DialTarget {
-    fn new(kind: AddrKind, addr: BdAddr) -> Self {
+    fn new(kind: AddrKind, addr: BdAddr, rssi: Option<i8>) -> Self {
         Self {
             kind,
             addr,
+            rssi,
             transient_client_retries: TransientClientRetries::EightRemaining,
         }
     }
@@ -123,6 +125,7 @@ impl DialTarget {
         TransientClientRetry::Retry(Self {
             kind: self.kind,
             addr: self.addr,
+            rssi: self.rssi,
             transient_client_retries,
         })
     }
@@ -355,14 +358,17 @@ pub struct EmbeddedBleBackend {
 
 impl EmbeddedBleBackend {
     fn remember(&mut self, peer: SeenPeer) {
-        let target = DialTarget::new(peer.kind, peer.addr);
-        if self
+        let octets = peer.addr.into_inner();
+        if let Some(seen) = self
             .seen
-            .iter()
-            .any(|seen| seen.addr.into_inner() == peer.addr.into_inner())
+            .iter_mut()
+            .find(|seen| seen.addr.into_inner() == octets)
         {
+            seen.kind = peer.kind;
+            seen.rssi = Some(peer.rssi);
             return;
         }
+        let target = DialTarget::new(peer.kind, peer.addr, Some(peer.rssi));
         if self.seen.push(target).is_err() {
             self.seen.remove(0);
             let _ = self.seen.push(target);
@@ -374,6 +380,10 @@ impl EmbeddedBleBackend {
             .iter()
             .find(|seen| seen.addr.into_inner() == *address.octets())
             .copied()
+    }
+
+    fn peer_rssi(&self, address: BleAddress) -> Option<i8> {
+        self.resolve(address).and_then(|seen| seen.rssi)
     }
 }
 
@@ -423,11 +433,14 @@ impl BleBackend<PEER_CAPACITY> for EmbeddedBleBackend {
                     Origin::Accepted => BleEvent::Inbound(
                         self.hub.slots[index].link(link, &self.hub.outbound_frames),
                     ),
-                    Origin::Dialed => BleEvent::LinkReady {
-                        link: self.hub.slots[index].link(link, &self.hub.outbound_frames),
-                        origin: Origin::Dialed,
-                        peer_rssi: None,
-                    },
+                    Origin::Dialed => {
+                        let link = self.hub.slots[index].link(link, &self.hub.outbound_frames);
+                        BleEvent::LinkReady {
+                            peer_rssi: self.peer_rssi(link.address()),
+                            link,
+                            origin: Origin::Dialed,
+                        }
+                    }
                 }
             }
             Either3::Second(peer) => {
@@ -625,7 +638,7 @@ mod tests {
 
     #[test]
     fn transient_client_disconnect_retry_is_bounded() {
-        let mut target = DialTarget::new(AddrKind::PUBLIC, BdAddr::new([1, 2, 3, 4, 5, 6]));
+        let mut target = DialTarget::new(AddrKind::PUBLIC, BdAddr::new([1, 2, 3, 4, 5, 6]), None);
 
         for _ in 0..8 {
             target = match target.after_transient_client_disconnect() {

@@ -28,7 +28,7 @@ const RECENT_MEMBER_GRACE: Duration = Duration::from_secs(3);
 use prns_core::interfaces::{
     ConfiguredInterfacePolicy, ConnectionState, DiscoveryGroupApplyOutcome,
     EffectiveInterfacePolicy, InterfaceDescriptor, InterfaceId, InterfaceKind, InterfaceStatus,
-    TransferRates, DEFAULT_DISCOVERY_GROUP_HASH,
+    RadioIndication, TransferRates, DEFAULT_DISCOVERY_GROUP_HASH,
 };
 use prns_runtime::manifold::driver::TokioInterfaceStatus;
 use prns_runtime::manifold::interface_seam::{Interface, InterfaceSeam, MAX_WIRE_FRAME_LEN};
@@ -825,6 +825,7 @@ async fn apply_settle<B, const MAX_PEERS: usize>(
                 identity,
                 address,
                 lane,
+                peer_rssi,
                 ..
             } => {
                 if let Some(mut held) = link.take() {
@@ -833,6 +834,7 @@ async fn apply_settle<B, const MAX_PEERS: usize>(
                     let member = BluetoothPeer::with_policy(identity, source, sink, policy)
                         .report_close_to(address, closed.clone());
                     let status = member.status();
+                    status.set_radio(RadioIndication::from_bluetooth_rssi(peer_rssi));
                     let attached = fleet.add(member);
                     members.insert(
                         identity,

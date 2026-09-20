@@ -17,15 +17,15 @@ use crate::remote_control::{
     RemoteControlInterfaceGroup, RemoteControlInterfaceInventory, RemoteControlInterfacePage,
     RemoteControlInterfacePeersOutcome, RemoteControlInterfacePower, RemoteControlLoRaOutcome,
     RemoteControlLoRaProfile, RemoteControlMessageWriteError, RemoteControlModeOutcome,
-    RemoteControlPeerPage, RemoteControlPowerOutcome, RemoteControlProtocolError,
-    RemoteControlRequest, RemoteControlRequestKind, RemoteControlRequestParseError,
-    RemoteControlRequestSet, RemoteControlResponse, RemoteControlResponseKind,
-    RemoteControlResponseParseError, RemoteControlRevokeControllerOutcome,
-    RemoteControlSelfAnnouncement, RemoteControlSleepOutcome, RemoteControlStationUplink,
-    RemoteControlSystemPower, RemoteControlWifiCredentialRevision, RemoteControlWifiStageOutcome,
-    RemoteControlWifiStation, RemoteControlWifiStationOutcome, RemoteControlWifiTransactionStatus,
-    RevokeRemoteControlControllerOutcome, SetRemoteControlControllerGrantOutcome,
-    REMOTE_CONTROL_REQUEST_ENDPOINT_ID,
+    RemoteControlNetworkTransport, RemoteControlNetworkTransportOutcome, RemoteControlPeerPage,
+    RemoteControlPowerOutcome, RemoteControlProtocolError, RemoteControlRequest,
+    RemoteControlRequestKind, RemoteControlRequestParseError, RemoteControlRequestSet,
+    RemoteControlResponse, RemoteControlResponseKind, RemoteControlResponseParseError,
+    RemoteControlRevokeControllerOutcome, RemoteControlSelfAnnouncement, RemoteControlSleepOutcome,
+    RemoteControlStationUplink, RemoteControlSystemPower, RemoteControlWifiCredentialRevision,
+    RemoteControlWifiStageOutcome, RemoteControlWifiStation, RemoteControlWifiStationOutcome,
+    RemoteControlWifiTransactionStatus, RevokeRemoteControlControllerOutcome,
+    SetRemoteControlControllerGrantOutcome, REMOTE_CONTROL_REQUEST_ENDPOINT_ID,
 };
 use crate::routing::links::request::REQUEST_WIRE_OVERHEAD;
 use crate::units::ByteLimit;
@@ -252,6 +252,10 @@ pub enum RemoteControlHostCommand {
     InspectWifiTransaction {
         controller: IdentityHash,
     },
+    DescribeNetworkTransport,
+    SetNetworkTransport {
+        transport: RemoteControlNetworkTransport,
+    },
 }
 
 impl RemoteControlHostCommand {
@@ -304,6 +308,8 @@ impl RemoteControlHostCommand {
             Self::CancelWifiCredentials { .. } => RemoteControlRequestKind::CancelWifiCredentials,
             #[cfg(feature = "remote-control-wifi-host")]
             Self::InspectWifiTransaction { .. } => RemoteControlRequestKind::InspectWifiTransaction,
+            Self::DescribeNetworkTransport => RemoteControlRequestKind::DescribeNetworkTransport,
+            Self::SetNetworkTransport { .. } => RemoteControlRequestKind::SetNetworkTransport,
         }
     }
 }
@@ -336,6 +342,8 @@ pub enum RemoteControlHostResponse {
     ConfirmWifiCredentials(RemoteControlApplyOutcome),
     CancelWifiCredentials(RemoteControlApplyOutcome),
     InspectWifiTransaction(RemoteControlWifiTransactionStatus),
+    DescribeNetworkTransport(RemoteControlNetworkTransport),
+    SetNetworkTransport(RemoteControlNetworkTransportOutcome),
 }
 
 impl RemoteControlHostResponse {
@@ -371,6 +379,8 @@ impl RemoteControlHostResponse {
             Self::ConfirmWifiCredentials(_) => RemoteControlRequestKind::ConfirmWifiCredentials,
             Self::CancelWifiCredentials(_) => RemoteControlRequestKind::CancelWifiCredentials,
             Self::InspectWifiTransaction(_) => RemoteControlRequestKind::InspectWifiTransaction,
+            Self::DescribeNetworkTransport(_) => RemoteControlRequestKind::DescribeNetworkTransport,
+            Self::SetNetworkTransport(_) => RemoteControlRequestKind::SetNetworkTransport,
         }
     }
 
@@ -426,6 +436,12 @@ impl RemoteControlHostResponse {
             }
             Self::InspectWifiTransaction(status) => {
                 RemoteControlResponse::InspectWifiTransaction(status)
+            }
+            Self::DescribeNetworkTransport(transport) => {
+                RemoteControlResponse::DescribeNetworkTransport(transport)
+            }
+            Self::SetNetworkTransport(outcome) => {
+                RemoteControlResponse::SetNetworkTransport(outcome)
             }
         }
     }
@@ -958,6 +974,65 @@ impl RemoteControlDescribePower {
     }
 }
 
+pub struct RemoteControlDescribeNetworkTransport;
+
+impl RemoteControlDescribeNetworkTransport {
+    pub const REQUEST: RemoteControlRequest = RemoteControlRequest::DescribeNetworkTransport;
+    pub const RESPONSE_CAPACITY: usize = Self::REQUEST.maximum_response_encoded_len();
+    pub const MAXIMUM_RESPONSE_BYTES: ByteLimit =
+        ByteLimit::Maximum(Self::RESPONSE_CAPACITY as u64);
+
+    pub fn write_request(out: &mut [u8]) -> Result<usize, RemoteControlError> {
+        Self::REQUEST
+            .write_into(out)
+            .map_err(RemoteControlError::Encode)
+    }
+
+    pub fn parse_response(
+        bytes: &[u8],
+    ) -> Result<RemoteControlNetworkTransport, RemoteControlError> {
+        match RemoteControlResponse::parse(bytes).map_err(RemoteControlError::Response)? {
+            RemoteControlResponse::DescribeNetworkTransport(transport) => Ok(transport),
+            RemoteControlResponse::ProtocolError(error) => Err(RemoteControlError::Remote(error)),
+            response => Err(RemoteControlError::UnexpectedResponse {
+                expected: RemoteControlResponseKind::DescribeNetworkTransport,
+                found: response.kind(),
+            }),
+        }
+    }
+}
+
+pub struct RemoteControlSetNetworkTransport;
+
+impl RemoteControlSetNetworkTransport {
+    pub const RESPONSE_CAPACITY: usize =
+        RemoteControlRequestKind::SetNetworkTransport.maximum_response_encoded_len();
+    pub const MAXIMUM_RESPONSE_BYTES: ByteLimit =
+        ByteLimit::Maximum(Self::RESPONSE_CAPACITY as u64);
+
+    pub fn write_request(
+        transport: RemoteControlNetworkTransport,
+        out: &mut [u8],
+    ) -> Result<usize, RemoteControlError> {
+        RemoteControlRequest::SetNetworkTransport { transport }
+            .write_into(out)
+            .map_err(RemoteControlError::Encode)
+    }
+
+    pub fn parse_response(
+        bytes: &[u8],
+    ) -> Result<RemoteControlNetworkTransportOutcome, RemoteControlError> {
+        match RemoteControlResponse::parse(bytes).map_err(RemoteControlError::Response)? {
+            RemoteControlResponse::SetNetworkTransport(outcome) => Ok(outcome),
+            RemoteControlResponse::ProtocolError(error) => Err(RemoteControlError::Remote(error)),
+            response => Err(RemoteControlError::UnexpectedResponse {
+                expected: RemoteControlResponseKind::SetNetworkTransport,
+                found: response.kind(),
+            }),
+        }
+    }
+}
+
 pub struct RemoteControlSleepRadios;
 
 impl RemoteControlSleepRadios {
@@ -1371,6 +1446,24 @@ impl RemoteControlRequestEndpoint {
                 require_available(available_requests, RemoteControlRequestKind::DescribePower)?;
                 Ok(AdmittedRemoteControlOperation::Host(
                     RemoteControlHostCommand::DescribePower,
+                ))
+            }
+            Ok(RemoteControlRequest::DescribeNetworkTransport) => {
+                require_available(
+                    available_requests,
+                    RemoteControlRequestKind::DescribeNetworkTransport,
+                )?;
+                Ok(AdmittedRemoteControlOperation::Host(
+                    RemoteControlHostCommand::DescribeNetworkTransport,
+                ))
+            }
+            Ok(RemoteControlRequest::SetNetworkTransport { transport }) => {
+                require_available(
+                    available_requests,
+                    RemoteControlRequestKind::SetNetworkTransport,
+                )?;
+                Ok(AdmittedRemoteControlOperation::Host(
+                    RemoteControlHostCommand::SetNetworkTransport { transport },
                 ))
             }
             Ok(RemoteControlRequest::SleepRadios) => {

@@ -125,6 +125,7 @@ pub enum PrnsCommand {
     SettleRemoteControlControllerPairingPersistence(
         SettleRemoteControlControllerPairingPersistence,
     ),
+    SetNetworkTransport(crate::engine::NetworkTransport),
 }
 
 // The Owes* variants hand the caller its whole command payload back (SendSinglePacket rides ~400B of heapless body) beside slim rejections. Outcomes are transient by-value returns, destructured immediately, and the no-alloc core has no Box to shrink them.
@@ -300,6 +301,12 @@ pub enum CommandOutcome {
         id: CommandId,
         rejection: CloseLinkRejection,
     },
+    NetworkTransportSet {
+        id: CommandId,
+    },
+    SetNetworkTransportUnidentified {
+        id: CommandId,
+    },
 }
 
 /// Paired verb-for-verb with [`PrnsCommand`]: a data boundary erases type-level ties, so the tie is explicit here.
@@ -366,6 +373,7 @@ pub enum Settlement {
             SettleRemoteControlControllerPairingPersistenceFailure,
         >,
     ),
+    SetNetworkTransport(Result<(), crate::engine::SetNetworkTransportError>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -478,6 +486,14 @@ impl<S: StorageLayout> EngineState<S> {
             PrnsCommand::CloseLink(close) => self.ingest_close_link(id, close),
             PrnsCommand::SetResourceStrategy(set) => self.ingest_set_resource_strategy(id, set),
             PrnsCommand::AllowRequester(allow) => self.ingest_allow_requester_command(id, allow),
+            PrnsCommand::SetNetworkTransport(network) => {
+                match self.set_network_transport(network) {
+                    Ok(()) => CommandOutcome::NetworkTransportSet { id },
+                    Err(crate::engine::SetNetworkTransportError::Unidentified) => {
+                        CommandOutcome::SetNetworkTransportUnidentified { id }
+                    }
+                }
+            }
         }
     }
 

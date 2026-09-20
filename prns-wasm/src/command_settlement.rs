@@ -157,9 +157,8 @@ fn project_settlement(settlement: Settlement) -> CapturedCommandResult {
         | Settlement::ApproveRemoteControlControllerPairing(_)
         | Settlement::RejectRemoteControlControllerPairing(_)
         | Settlement::RemoteControlControllerPairingRequest(_)
-        | Settlement::SettleRemoteControlControllerPairingPersistence(_) => {
-            CapturedCommandResult::Untracked
-        }
+        | Settlement::SettleRemoteControlControllerPairingPersistence(_)
+        | Settlement::SetNetworkTransport(_) => CapturedCommandResult::Untracked,
     }
 }
 

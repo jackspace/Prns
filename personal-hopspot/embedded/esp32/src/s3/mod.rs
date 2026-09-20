@@ -194,7 +194,10 @@ pub const LIFECYCLE_CAP: usize = 8;
 const COMPLETIONS_CAP: usize = 4;
 
 const CORE1_STACK_BYTES: usize = 72 * 1024;
-const RECLAIMED_HEAP_BYTES: usize = 72 * 1024;
+/// Fills `dram2_seg` from `memory-esp32s3.x` (`ORIGIN = 0x3FCDF700`). Kept at 56 KiB so the
+/// raised dram2 boundary can give core 0's main stack +16 KiB versus esp-hal's default;
+/// `RADIO_INTERNAL_HEAP_BYTES` below still funds Wi-Fi RX during BLE coexistence.
+const RECLAIMED_HEAP_BYTES: usize = 56 * 1024;
 // Large Wi-Fi, BLE, and manifold async state machines plus both embassy-net socket tables park
 // ordinary software state in PSRAM. Reinvest the released `.bss` in the internal-only radio heap:
 // the S3 Wi-Fi blob can retain its complete RX profile during BLE coexistence without exhausting

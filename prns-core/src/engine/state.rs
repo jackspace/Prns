@@ -144,7 +144,7 @@ impl Default for EngineProtocolPolicy {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NetworkTransport {
+pub enum NetworkTransport {
     Disabled,
     Enabled,
 }

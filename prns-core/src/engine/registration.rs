@@ -33,6 +33,11 @@ pub enum SetTransportIdentityError {
     AlreadyConfigured,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetNetworkTransportError {
+    Unidentified,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 #[must_use]
 pub enum UnregisterDestinationOutcome {
@@ -225,6 +230,19 @@ impl<S: StorageLayout> EngineState<S> {
 
     pub const fn network_transport_enabled(&self) -> bool {
         self.transport.network_transport_enabled()
+    }
+
+    pub fn set_network_transport(
+        &mut self,
+        network: NetworkTransport,
+    ) -> Result<(), SetNetworkTransportError> {
+        match self.transport {
+            TransportState::Unidentified => Err(SetNetworkTransportError::Unidentified),
+            TransportState::Identified { id, .. } => {
+                self.transport = TransportState::Identified { id, network };
+                Ok(())
+            }
+        }
     }
 
     pub fn upstream_app_destinations(&self) -> impl Iterator<Item = UpstreamAppDestination> + '_ {
@@ -1108,6 +1126,34 @@ mod tests {
 
         assert_eq!(state.set_non_routing_identity(&held), Ok(()));
         assert!(!state.network_transport_enabled());
+    }
+
+    #[test]
+    fn set_network_transport_flips_the_identified_bit_without_changing_id() {
+        let mut state = EngineState::<TestStorageLayout>::default();
+        assert_eq!(
+            state.set_network_transport(NetworkTransport::Disabled),
+            Err(SetNetworkTransportError::Unidentified),
+        );
+
+        let held = state.hold_identity(fixed_secret_key()).unwrap();
+        assert_eq!(state.set_transport_identity(&held), Ok(()));
+        let id = state.transport_id();
+        assert!(state.network_transport_enabled());
+
+        assert_eq!(
+            state.set_network_transport(NetworkTransport::Disabled),
+            Ok(())
+        );
+        assert_eq!(state.transport_id(), id);
+        assert!(!state.network_transport_enabled());
+
+        assert_eq!(
+            state.set_network_transport(NetworkTransport::Enabled),
+            Ok(())
+        );
+        assert_eq!(state.transport_id(), id);
+        assert!(state.network_transport_enabled());
     }
 
     fn signed_seed_row(app_data: &[u8]) -> (PersistedRouteRow<'_>, crate::interfaces::InterfaceId) {

@@ -1184,6 +1184,18 @@ impl<S: StorageLayout> EngineState<S> {
                     Settlement::CloseLink(Err(CloseLinkFailure::Rejected(rejection))),
                 );
             }
+            CommandOutcome::NetworkTransportSet { id } => {
+                settle(sink, id, Settlement::SetNetworkTransport(Ok(())));
+            }
+            CommandOutcome::SetNetworkTransportUnidentified { id } => {
+                settle(
+                    sink,
+                    id,
+                    Settlement::SetNetworkTransport(Err(
+                        crate::engine::SetNetworkTransportError::Unidentified,
+                    )),
+                );
+            }
             CommandOutcome::ResourceStrategySet { id } => {
                 settle(sink, id, Settlement::SetResourceStrategy(Ok(())));
             }
