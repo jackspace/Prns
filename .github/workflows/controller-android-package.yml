@@ -1,0 +1,84 @@
+name: controller-android-package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: 1.96.0
+
+jobs:
+  package:
+    name: unsigned Android Controller (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            target: aarch64-linux-android
+          - arch: armv7
+            target: armv7-linux-androideabi
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK / NDK
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >>"$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >>"$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.96.0
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: controller-android-package-${{ matrix.arch }}
+          workspaces: |
+            .
+            personal-hopspot/remote-control-desktop
+
+      - uses: cargo-bins/cargo-binstall@57726869e28f4038a847ec56e5fdd9142fded110
+        with:
+          version: "1.21.0"
+
+      - name: Install exact Dioxus CLI
+        run: cargo binstall --locked --no-confirm --force dioxus-cli@0.7.5
+
+      - name: Package unsigned Controller APK
+        run: |
+          dx --version | grep -E '(^| )0\.7\.5($| )'
+          ./tools/prns run release.controller.android.package -- \
+            --arch ${{ matrix.arch }} \
+            --out-dir target/controller-android
+
+      - name: Confirm APK
+        run: |
+          apk="target/controller-android/PRNS-Controller-android-${{ matrix.arch }}-unsigned.apk"
+          test -f "$apk"
+          size="$(wc -c <"$apk" | tr -d ' ')"
+          test "$size" -gt 1000000
+          echo "apk=$apk size=$size"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: PRNS-Controller-android-${{ matrix.arch }}-unsigned
+          path: target/controller-android/PRNS-Controller-android-${{ matrix.arch }}-unsigned.apk
+          if-no-files-found: error
+          retention-days: 14
