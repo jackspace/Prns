@@ -206,6 +206,7 @@ pub(super) fn runtime_operation_name(operation: RuntimeOperation) -> &'static st
         RuntimeOperation::SettleRemoteControlControllerPairingPersistence => {
             "settle_remote_control_controller_pairing_persistence"
         }
+        RuntimeOperation::SetNetworkTransport => "set_network_transport",
     }
 }
 
