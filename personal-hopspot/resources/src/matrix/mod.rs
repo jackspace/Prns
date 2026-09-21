@@ -167,6 +167,12 @@ impl<'a> Matrix<'a> {
                                 source,
                             }
                         })?;
+                        // MeshTower stays on the reviewed thin-LTO build-only recipe below.
+                        // The catalog entry is what hopspot-flash stages; it must not
+                        // become a second resource target with the same ID.
+                        if memory.id().0 == mesh_tower_v2::ID {
+                            continue;
+                        }
                         targets.push(Target {
                             id: memory.id().0.to_string(),
                             display_name: format!(
