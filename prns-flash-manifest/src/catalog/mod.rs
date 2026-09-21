@@ -711,6 +711,26 @@ const MESH_POCKET_10000_UF2_RECIPE: PinnedUf2Recipe = PinnedUf2Recipe {
     }],
 };
 
+const MESH_TOWER_V2_UF2_RECIPE: PinnedUf2Recipe = PinnedUf2Recipe {
+    preparation_profile: PreparationProfile::T114Uf2,
+    package: "t-echo",
+    binary: "heltec-mesh-tower-v2",
+    board_feature: "board-mesh-tower-v2",
+    manufacturer: "Stay Personal",
+    product: "Personal Hopspot (Heltec MeshTower V2)",
+    serial_number: "PERSONAL-RNS-MTWR-HOP",
+    variants: &[PinnedUf2Variant {
+        softdevice_family: "s140",
+        softdevice_version: "6.1.1",
+        fwid: "0x00b6",
+        memory_profile: "mesh-tower-v2",
+        family_id: "0xada52840",
+        application_link: Uf2ApplicationLink::SoftdeviceS140V6,
+        target_directory: "target/mesh-tower-v2",
+        filename: "heltec-mesh-tower-v2-s140-6.1.1.uf2",
+    }],
+};
+
 const T096_UF2_RECIPE: PinnedUf2Recipe = PinnedUf2Recipe {
     preparation_profile: PreparationProfile::T096Uf2,
     package: "t-echo",
@@ -736,6 +756,7 @@ fn pinned_uf2_recipe(slug: &str) -> Option<&'static PinnedUf2Recipe> {
         "t-echo" => Some(&T_ECHO_UF2_RECIPE),
         "mesh-pocket-5000" => Some(&MESH_POCKET_5000_UF2_RECIPE),
         "mesh-pocket-10000" => Some(&MESH_POCKET_10000_UF2_RECIPE),
+        "mesh-tower-v2" => Some(&MESH_TOWER_V2_UF2_RECIPE),
         "t096" => Some(&T096_UF2_RECIPE),
         "t114" => Some(&T114_UF2_RECIPE),
         _ => None,
@@ -1034,6 +1055,7 @@ mod tests {
                 ("t114", None, None),
                 ("mesh-pocket-5000", None, None),
                 ("mesh-pocket-10000", None, None),
+                ("mesh-tower-v2", None, None),
                 ("t096", None, None),
                 ("t1000-e", None, None),
             ]
@@ -1110,6 +1132,7 @@ mod tests {
                     "mesh-pocket-10000",
                     "thumbv7em-none-eabihf"
                 ),
+                ("mesh-tower-v2", "mesh-tower-v2", "thumbv7em-none-eabihf"),
                 ("t096", "t096", "thumbv7em-none-eabihf"),
                 ("t1000-e", "t1000-e", "thumbv7em-none-eabihf"),
             ]

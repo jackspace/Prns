@@ -47,6 +47,7 @@ jobs:
           test -f target/controller-firmware-staging/firmware/heltec-v4/target.json
           test -f target/controller-firmware-staging/firmware/heltec-v4-r8/target.json
           test -f target/controller-firmware-staging/firmware/t-echo/target.json
+          test -f target/controller-firmware-staging/firmware/mesh-tower-v2/target.json
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -124,6 +125,7 @@ jobs:
           test -f "$dest/firmware/heltec-v4/target.json"
           test -f "$dest/firmware/heltec-v4-r8/target.json"
           test -f "$dest/firmware/t-echo/target.json"
+          test -f "$dest/firmware/mesh-tower-v2/target.json"
           zip="target/controller-windows/PRNS-Controller-windows-${{ matrix.arch }}-unsigned.zip"
           test -f "$zip"
           if command -v unzip >/dev/null 2>&1; then

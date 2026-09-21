@@ -182,6 +182,7 @@ test -f "$resources/firmware/bundle.json"
 test -f "$resources/firmware/heltec-v4/target.json"
 test -f "$resources/firmware/heltec-v4-r8/target.json"
 test -f "$resources/firmware/t-echo/target.json"
+test -f "$resources/firmware/mesh-tower-v2/target.json"
 
 # TCC: Finder/`open` aborts without these (SIGABRT / namespace TCC). dx bundle
 # does not emit them from Dioxus.toml today, so inject after bundling.

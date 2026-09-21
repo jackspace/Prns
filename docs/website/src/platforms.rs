@@ -321,16 +321,7 @@ pub const UPCOMING_BOARD_TARGETS: &[BoardTarget] = &[
     },
 ];
 
-pub const IN_PROGRESS_BOARD_TARGETS: &[BoardTarget] = &[BoardTarget {
-    name: "Heltec MeshTower V2",
-    slug: "mesh-tower-v2",
-    silicon: "nRF52840 + SX1262 + KCT8103L PA",
-    tier: Tier::Qualification,
-    interfaces: &[],
-    icon: Some("nordicsemiconductor"),
-    preparation_profile: None,
-    flash_target: None,
-}];
+pub const IN_PROGRESS_BOARD_TARGETS: &[BoardTarget] = &[];
 
 pub fn all_board_targets() -> impl Iterator<Item = &'static BoardTarget> {
     SHIPPING_BOARD_TARGETS
@@ -733,11 +724,7 @@ mod tests {
 
     #[test]
     fn in_progress_boards_sit_in_the_main_grid_with_their_status() {
-        let cards = IN_PROGRESS_BOARD_TARGETS
-            .iter()
-            .map(|board| (board.slug, board.tier, board.image().is_some()))
-            .collect::<Vec<_>>();
-        assert_eq!(cards, vec![("mesh-tower-v2", Tier::Qualification, true)]);
+        assert!(IN_PROGRESS_BOARD_TARGETS.is_empty());
     }
 
     #[test]

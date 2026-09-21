@@ -410,6 +410,52 @@
       }
     },
     {
+      "availability": "qualification",
+      "slug": "mesh-tower-v2",
+      "display_name": "Heltec MeshTower V2",
+      "silicon": "nRF52840 + SX1262 + KCT8103L PA",
+      "interfaces": ["BLE Auto", "LoRa", "USB Auto"],
+      "icon": "nordicsemiconductor",
+      "transport": "uf2-mass-storage",
+      "expected_chip": null,
+      "flash_size": null,
+      "preparation_profile": "t114-uf2",
+      "provisioning": null,
+      "build": {
+        "kind": "uf2",
+        "package": "t-echo",
+        "binary": "heltec-mesh-tower-v2",
+        "board_feature": "board-mesh-tower-v2",
+        "rust_target": "thumbv7em-none-eabihf",
+        "mount_label": "HT-n5262",
+        "board_identity": {
+          "match": "exact-shared",
+          "value": "ht-n5262"
+        },
+        "application_usb": {
+          "usb": {
+            "vendor_id": "0x1209",
+            "product_id": "0x0001"
+          },
+          "manufacturer": "Stay Personal",
+          "product": "Personal Hopspot (Heltec MeshTower V2)",
+          "serial_number": "PERSONAL-RNS-MTWR-HOP"
+        },
+        "variants": [
+          {
+            "softdevice_family": "s140",
+            "softdevice_version": "6.1.1",
+            "fwid": "0x00b6",
+            "memory_profile": "mesh-tower-v2",
+            "family_id": "0xada52840",
+            "application_link": "softdevice-s140-v6",
+            "target_directory": "target/mesh-tower-v2",
+            "filename": "heltec-mesh-tower-v2-s140-6.1.1.uf2"
+          }
+        ]
+      }
+    },
+    {
       "availability": "shipping",
       "slug": "t096",
       "display_name": "Heltec Mesh Node T096",
