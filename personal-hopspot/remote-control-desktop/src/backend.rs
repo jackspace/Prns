@@ -51,9 +51,7 @@ use personal_rns::usb_auto::{UsbAutoCandidate, UsbAutoHost};
 use personal_rns::wifi_auto::apple_service_discovery;
 use personal_rns::wifi_auto::AutoWifiStatus;
 #[cfg(target_os = "android")]
-use personal_rns::wifi_auto::{
-    native_service_discovery_with_host_lan, AutoWifiDevicePolicy,
-};
+use personal_rns::wifi_auto::{native_service_discovery_with_host_lan, AutoWifiDevicePolicy};
 #[cfg(not(target_os = "android"))]
 use personal_rns::AutoBle;
 #[cfg(target_os = "android")]
