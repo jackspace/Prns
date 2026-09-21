@@ -11,7 +11,10 @@ pub struct HeapSeenPathRequestTable {
 }
 
 impl HeapSeenPathRequestTable {
-    /// RNS 1.4.2 `Transport.max_pr_tags`: the reference's own bound on remembered path-request tags, dropped oldest-first past it.
+    /// RNS 1.4.2 `Transport.max_pr_tags`: one FIFO list of 32,000 path-request tags, trimmed
+    /// oldest-first. RNS 1.5.0 onward keeps two rotating generations of 16,000 and treats a tag as
+    /// seen if it is in either, so it remembers between 16,000 and 32,000. This ring keeps the
+    /// 1.4.2 bound, which is also the most a current reference node remembers.
     pub const RNS_MAX_PR_TAGS: usize = 32_000;
 }
 
