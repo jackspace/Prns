@@ -191,7 +191,7 @@ bash "$root/tools/release/embed-controller-firmware.sh" "${embed_args[@]}"
 test -f "$dest_dir/firmware/bundle.json"
 test -f "$dest_dir/firmware/heltec-v4/target.json"
 test -f "$dest_dir/firmware/heltec-v4-r8/target.json"
-test -f "$dest_dir/firmware/mesh-tower-v2/target.json"
+test -f "$dest_dir/firmware/t-echo/target.json"
 
 arch="$(host_arch)"
 archive_name="PRNS-Controller-linux-${arch}-unsigned.tar.gz"

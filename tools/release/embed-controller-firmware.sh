@@ -11,7 +11,7 @@ out_dir=""
 hopspot_flash=""
 firmware_from=""
 skip_build=0
-boards_csv="heltec-v4,heltec-v4-r8,mesh-tower-v2"
+boards_csv="heltec-v4,heltec-v4-r8,t-echo"
 
 usage() {
     cat <<'EOF'
@@ -23,7 +23,7 @@ options:
   --out-dir DIR          Destination that will contain firmware/ (required)
   --hopspot-flash PATH   hopspot-flash binary (default: target/release/hopspot-flash)
   --firmware-from DIR    Reuse prebuilt board dirs from DIR/<slug>/ (skip hopspot-flash build)
-  --boards LIST          Comma-separated board slugs (default: heltec-v4,heltec-v4-r8,mesh-tower-v2)
+  --boards LIST          Comma-separated board slugs (default: heltec-v4,heltec-v4-r8,t-echo)
   -h, --help             Show this help
 EOF
 }

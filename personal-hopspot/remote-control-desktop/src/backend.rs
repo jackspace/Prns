@@ -16,7 +16,7 @@ use personal_rns::identity::{IdentityHash, IDENTITY_PUBLIC_KEY_LEN};
 use personal_rns::interfaces::bluetooth_auto::BleIdentity;
 #[cfg(target_os = "android")]
 use personal_rns::interfaces::bluetooth_auto::{
-    group_tag, AndroidHost, Endpoint, LinkCapabilities, BLE_HW_MTU,
+    AndroidHost, Endpoint, LinkCapabilities, BLE_HW_MTU,
 };
 use personal_rns::interfaces::lora::{ModemPreset, Modulation, RadioProfile};
 use personal_rns::interfaces::{
@@ -51,7 +51,9 @@ use personal_rns::usb_auto::{UsbAutoCandidate, UsbAutoHost};
 use personal_rns::wifi_auto::apple_service_discovery;
 use personal_rns::wifi_auto::AutoWifiStatus;
 #[cfg(target_os = "android")]
-use personal_rns::wifi_auto::{native_service_discovery_with_host_lan, AutoWifiDevicePolicy};
+use personal_rns::wifi_auto::{
+    native_service_discovery_with_host_lan, AutoWifiDevicePolicy,
+};
 #[cfg(not(target_os = "android"))]
 use personal_rns::AutoBle;
 #[cfg(target_os = "android")]
@@ -3958,12 +3960,12 @@ impl ControllerSession {
                 #[cfg(target_os = "android")]
                 let wifi = {
                     let inventory = crate::android::lan_bridge().inventory();
-                    AutoWifi::default()
-                        .with_host_lan_inventory(inventory.clone())
-                        .with_host_discovery(native_service_discovery_with_host_lan(
+                    AutoWifi::default().with_native_host_discovery(
+                        native_service_discovery_with_host_lan(
                             AutoWifiDevicePolicy::default(),
                             inventory,
-                        ))
+                        ),
+                    )
                 };
                 #[cfg(not(any(target_os = "macos", target_os = "android")))]
                 let wifi = AutoWifi::default();
@@ -3999,8 +4001,6 @@ impl ControllerSession {
                 {
                     let platform = crate::android::platform();
                     platform.ble.set_local_identity(ble_identity);
-                    let ble_group_tag = group_tag(b"reticulum");
-                    platform.ble.set_local_group_tag(ble_group_tag);
                     let bluetooth = BluetoothAuto::<_, { AndroidBleBackend::MAX_PEERS }>::new(
                         AndroidBleBackend::new(platform.ble.clone()),
                         ble_identity,
@@ -4009,13 +4009,18 @@ impl ControllerSession {
                             l2cap: None,
                             link_mtu: BLE_HW_MTU as u16,
                         },
-                        ble_group_tag,
                     );
                     let ble_status = bluetooth.status();
                     if !start_ble {
                         ble_status.disable();
                     }
                     attach_power.register(LocalPowerControl::Ble(ble_status.clone()));
+                    let apply_group = ble_status.clone();
+                    spawn(async move {
+                        let _ = apply_group
+                            .replace_discovery_groups(DiscoveryGroupSet::reticulum())
+                            .await;
+                    });
                     let attached_ble = handle.supervise(bluetooth);
                     let _ = attached_ble;
                 }

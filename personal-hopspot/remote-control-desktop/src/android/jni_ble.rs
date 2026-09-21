@@ -2,7 +2,9 @@ use super::ble_bridge;
 use jni::objects::{JByteBuffer, JClass};
 use jni::sys::{jboolean, jint, jlong};
 use jni::JNIEnv;
-use prns_core::interfaces::bluetooth_auto::{typed_dial_override_code, AndroidHost, Endpoint};
+use prns_core::interfaces::bluetooth_auto::{
+    columba_role_capabilities_from_manufacturer, AndroidHost, BleRoleCapabilities, Endpoint,
+};
 use prns_ffi::bluetooth_auto::android::AndroidBleIngressAdmission;
 
 #[no_mangle]
@@ -123,6 +125,26 @@ fn ble_payload<'a>(env: &JNIEnv, buffer: &JByteBuffer) -> Option<&'a [u8]> {
     }
     // SAFETY: `address` points at the JVM-owned direct buffer, pinned for this call.
     Some(unsafe { core::slice::from_raw_parts(address, capacity) })
+}
+
+/// JNI / host adapter: `1` dial, `0` accept, `-1` let the host compare radio addresses.
+///
+/// Pair-policy table helpers were parked off tip; keep the JNI contract with the
+/// Columba role advertisement that ships today (v3 manufacturer payload).
+fn typed_dial_override_code(local: Endpoint, role_payload: &[u8]) -> i8 {
+    if role_payload.is_empty() {
+        // Empty payload ⇒ implied Mac. Esp32 Accepts; other non-Mac hosts Dial.
+        return match local {
+            Endpoint::Esp32(_) => 0,
+            _ => 1,
+        };
+    }
+    const COMPANY_ID: u16 = 0xffff;
+    match columba_role_capabilities_from_manufacturer(COMPANY_ID, role_payload) {
+        None => 0,
+        Some(BleRoleCapabilities::PeripheralOnly) => 1,
+        Some(BleRoleCapabilities::DualRole) => -1,
+    }
 }
 
 #[no_mangle]
