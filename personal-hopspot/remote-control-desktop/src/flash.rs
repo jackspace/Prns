@@ -647,7 +647,7 @@ pub fn identity_offset(slug: &str) -> Option<u32> {
         "xiao-esp32-c6" => Some(0x003D_F000),
         "t-echo" => Some(0x000E_2000),
         "t114" | "t096" => Some(0x000E_1000),
-        "mesh-tower-v2" => Some(0x000E_2000),
+        "mesh-tower-v2" | "rak4631" => Some(0x000E_2000),
         "t1000-e" => Some(0x000E_9000),
         _ => None,
     }
@@ -670,6 +670,10 @@ pub fn preparation_steps(profile: &str) -> &'static [&'static str] {
         ],
         "t096-uf2" => &[
             "Double-reset the board until the HT-n5262G drive appears.",
+            "Keep the USB data cable connected until the drive disappears after flash.",
+        ],
+        "rak4631-uf2" => &[
+            "Double-reset the RAK4631 until the RAK4631 drive appears.",
             "Keep the USB data cable connected until the drive disappears after flash.",
         ],
         "t1000e-nrf-dfu" => &[
@@ -753,29 +757,26 @@ pub fn flash_enrolled_board(
                     developer_artifacts: None,
                 }
             }
-            // hopspot-flash dropped --developer-artifacts; local catalog images rebuild
-            // from the checkout so Controller Flash stays on current tree firmware.
-            crate::image_catalog::ImageProvenance::LocalBuild => FlashInvocation {
-                slug,
-                local_build: true,
-                candidate: None,
-                developer_artifacts: None,
-            },
-            crate::image_catalog::ImageProvenance::Imported
+            crate::image_catalog::ImageProvenance::LocalBuild
+            | crate::image_catalog::ImageProvenance::Imported
             | crate::image_catalog::ImageProvenance::Bundled => {
-                return Err(FlashError::Message(format!(
-                    "unsigned {slug} catalog image ({}) cannot be flashed: hopspot-flash no longer accepts --developer-artifacts. Choose a published tip, or Build then Flash a local image",
-                    match image.provenance {
-                        crate::image_catalog::ImageProvenance::Imported => "imported",
-                        crate::image_catalog::ImageProvenance::Bundled => "bundled",
-                        _ => "unsigned",
-                    }
-                )));
+                let image_dir = crate::image_catalog::current_image_dir(slug)
+                    .map_err(|error| FlashError::Message(format!("image catalog error: {error}")))?
+                    .ok_or_else(|| {
+                        FlashError::Message(format!("catalog image directory missing for {slug}"))
+                    })?;
+                FlashInvocation {
+                    slug,
+                    local_build: false,
+                    candidate: None,
+                    developer_artifacts: Some(image_dir),
+                }
             }
         }
     };
     let vault_path = vault_page
         .filter(|bytes| !bytes.is_empty())
+        .filter(|_| hopspot_flash_writes_rc_vault(slug))
         .map(|bytes| {
             let offset = identity_offset(slug).ok_or_else(|| {
                 FlashError::Message(format!(
@@ -1845,6 +1846,15 @@ fn configure_hopspot_stdio(command: &mut Command) {
         .stderr(Stdio::piped());
 }
 
+fn hopspot_flash_writes_rc_vault(slug: &str) -> bool {
+    matches!(
+        board_catalog()
+            .ok()
+            .and_then(|catalog| catalog.board(slug).map(|board| board.transport)),
+        Some(Transport::EspSerial | Transport::Uf2MassStorage)
+    )
+}
+
 fn hopspot_flash_command(invocation: FlashInvocation<'_>) -> Result<Command, FlashError> {
     // Local-build flash always uses the checkout cargo path.
     let allow_cargo = true;
@@ -1864,10 +1874,8 @@ fn hopspot_flash_command(invocation: FlashInvocation<'_>) -> Result<Command, Fla
         command.arg("--local-build");
     } else if let Some(candidate) = &invocation.candidate {
         command.arg("--candidate").arg(candidate);
-    } else if invocation.developer_artifacts.is_some() {
-        return Err(FlashError::Message(
-            "hopspot-flash no longer accepts --developer-artifacts; use a local build or a signed --candidate".to_string(),
-        ));
+    } else if let Some(artifacts) = &invocation.developer_artifacts {
+        command.arg("--developer-artifacts").arg(artifacts);
     }
     command.arg("--yes").arg("--json");
     Ok(command)
@@ -2250,21 +2258,36 @@ error: could not compile `personal-hopspot-esp32` (lib) due to 1 previous error
     }
 
     #[test]
-    fn controller_flash_rejects_removed_developer_artifacts_flag() {
+    fn hopspot_flash_writes_rc_vault_for_esp_and_uf2_boards() {
+        assert!(hopspot_flash_writes_rc_vault("heltec-v4"));
+        assert!(hopspot_flash_writes_rc_vault("heltec-v4-r8"));
+        assert!(hopspot_flash_writes_rc_vault("t-echo"));
+        assert!(hopspot_flash_writes_rc_vault("rak4631"));
+        assert!(!hopspot_flash_writes_rc_vault("t1000-e"));
+    }
+
+    #[test]
+    fn controller_flash_passes_developer_artifacts_flag() {
         let artifacts = PathBuf::from("/tmp/catalog/heltec-v4-r8/local-0.3.7-abcdef012345");
-        let error = hopspot_flash_command(FlashInvocation {
+        let command = hopspot_flash_command(FlashInvocation {
             slug: "heltec-v4-r8",
             local_build: false,
             candidate: None,
             developer_artifacts: Some(artifacts),
         })
-        .expect_err("developer-artifacts must fail closed");
-        assert!(
-            error
-                .to_string()
-                .contains("no longer accepts --developer-artifacts"),
-            "{error}"
-        );
+        .expect("developer artifacts must resolve hopspot-flash");
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.windows(2).any(|w| {
+            w[0] == "--developer-artifacts"
+                && w[1] == "/tmp/catalog/heltec-v4-r8/local-0.3.7-abcdef012345"
+        }));
+        assert!(args.contains(&"flash".to_string()));
+        assert!(args.contains(&"heltec-v4-r8".to_string()));
+        assert!(!args.iter().any(|arg| arg == "--local-build"));
+        assert!(!args.iter().any(|arg| arg == "--candidate"));
     }
 
     #[test]

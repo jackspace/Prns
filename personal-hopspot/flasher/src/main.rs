@@ -331,11 +331,6 @@ fn execute_flash(
             request.rc_vault,
         ),
         (Transport::Uf2MassStorage, PreparedTarget::Uf2(prepared)) => {
-            if request.rc_vault.is_some() {
-                return Err(AppError::unsupported_operation(
-                    "Remote Control vault pages require ESP sparse flash; UF2 boards do not accept --rc-vault",
-                ));
-            }
             if !matches!(request.provisioning, ProvisioningAction::Preserve) {
                 return Err(AppError::unsupported_operation(format!(
                     "{} does not support Wi-Fi provisioning",
@@ -345,13 +340,20 @@ fn execute_flash(
             let device = detected_uf2.ok_or_else(|| {
                 AppError::device_identity("UF2 device selection disappeared before delivery")
             })?;
-            uf2::flash(board, &prepared, device, reporter)
+            uf2::flash(
+                board,
+                &prepared,
+                device,
+                request.rc_vault.as_ref(),
+                reporter,
+            )
         }
         (Transport::NrfSerialDfu, PreparedTarget::NrfSerialDfu(prepared)) => {
             if request.rc_vault.is_some() {
-                return Err(AppError::unsupported_operation(
-                    "Remote Control vault pages require ESP sparse flash; Nordic serial DFU does not accept --rc-vault",
-                ));
+                return Err(AppError::unsupported_operation(format!(
+                    "{} serial DFU cannot write the Remote Control enrollment vault; pair after flash or use a UF2 board",
+                    board.display_name
+                )));
             }
             if !matches!(request.provisioning, ProvisioningAction::Preserve) {
                 return Err(AppError::unsupported_operation(format!(

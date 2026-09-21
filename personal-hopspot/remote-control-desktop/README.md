@@ -47,7 +47,8 @@ releases are skipped for day-to-day Flash until they include remote-control
 support that matches this app.
 
 Bundled board set today: `heltec-v4` (HV4 R2), `heltec-v4-r8` (HV4 R8),
-`t-echo`, and `mesh-tower-v2` (qualification). (Heltec V3 is not in the flash catalog yet.)
+`t-echo`, `mesh-tower-v2` (qualification), and `rak4631` (qualification).
+(Heltec V3 is not in the flash catalog yet.)
 
 From a checkout, build the flasher once and point the Controller at it:
 
