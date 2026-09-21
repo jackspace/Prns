@@ -518,6 +518,13 @@ def run_task(task: dict, arguments: list[str]) -> int:
     # prevents a release task from silently selecting a different interpreter.
     if command[0] in ("python", "python3"):
         command[0] = sys.executable
+    # Windows CI exports PRNS_BASH to Git's bash.exe so native Windows Python does
+    # not resolve `bash` to the WSL stub under System32.
+    elif command[0] == "bash":
+        bash_override = os.environ.get("PRNS_BASH")
+        if bash_override:
+            command[0] = bash_override
+            display_command[0] = bash_override
     print(
         f"[tool] task={task['id']} effect={task['effect']} platform={host}; "
         f"{task['summary']}",
