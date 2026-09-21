@@ -31,7 +31,7 @@ use crate::boards::selected as board;
 
 #[cfg(any(feature = "board-mesh-tower-v2", feature = "board-rak4631"))]
 use super::bluetooth::{BLE_SHARED, BLE_SUPERVISOR_ID, MEMBERS};
-use super::{INTERFACE_STORE, REMOTE_CONTROL_COMMANDS};
+use super::{COMMANDS, COMPLETION, INTERFACE_STORE, REMOTE_CONTROL_COMMANDS};
 
 const RESPONSE_GRACE_PERIOD: Duration = Duration::from_millis(250);
 const LORA_ENABLED: u8 = 1 << 0;
@@ -168,6 +168,10 @@ pub(super) async fn run_headless(
             Err(error) => Err(error),
         };
         REMOTE_CONTROL_COMMANDS.complete(token, result);
+        hopspot::apply_pending_network_transport(|cmd| {
+            let _ = personal_rns::runtime::PrnsNodeHandle::new(COMMANDS.sender(), &COMPLETION)
+                .issue(cmd);
+        });
     }
 }
 
