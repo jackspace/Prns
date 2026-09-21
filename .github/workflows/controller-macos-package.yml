@@ -48,6 +48,7 @@ jobs:
           test -f target/controller-firmware-staging/firmware/heltec-v4-r8/target.json
           test -f target/controller-firmware-staging/firmware/t-echo/target.json
           test -f target/controller-firmware-staging/firmware/mesh-tower-v2/target.json
+          test -f target/controller-firmware-staging/firmware/rak4631/target.json
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -117,6 +118,7 @@ jobs:
           test -f "$app/Contents/Resources/firmware/heltec-v4-r8/target.json"
           test -f "$app/Contents/Resources/firmware/t-echo/target.json"
           test -f "$app/Contents/Resources/firmware/mesh-tower-v2/target.json"
+          test -f "$app/Contents/Resources/firmware/rak4631/target.json"
           test -f "target/controller-macos/PRNS-Controller-macos-${{ matrix.arch }}-unsigned.zip"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
