@@ -8,9 +8,11 @@ use static_cell::{ConstStaticCell, StaticCell};
 
 use personal_hopspot_core as hopspot;
 use personal_rns::engine::IssuedCommand;
-#[cfg(feature = "board-sensecap-solar-node")]
-use personal_rns::interfaces::lora::DEFAULT_869_PROFILE;
-#[cfg(any(feature = "board-t1000e", feature = "board-mesh-tower-v2"))]
+#[cfg(any(
+    feature = "board-t1000e",
+    feature = "board-mesh-tower-v2",
+    feature = "board-sensecap-solar-node"
+))]
 use personal_rns::interfaces::lora::DEFAULT_915_PROFILE;
 use personal_rns::interfaces::lora::{AirtimePolicy, LORA_MAX_PAYLOAD};
 use personal_rns::interfaces::usb_auto::{WEBUSB_PRODUCT_ID, WEBUSB_VENDOR_ID};
@@ -333,10 +335,12 @@ pub async fn run(spawner: Spawner) -> ! {
     let loaded_lora_profile = selected::load_profile(shared_flash).await;
     #[cfg(any(feature = "board-t096", feature = "board-t114"))]
     let lora_profile = loaded_lora_profile.profile;
-    #[cfg(any(feature = "board-t1000e", feature = "board-mesh-tower-v2"))]
+    #[cfg(any(
+        feature = "board-t1000e",
+        feature = "board-mesh-tower-v2",
+        feature = "board-sensecap-solar-node"
+    ))]
     let lora_profile = DEFAULT_915_PROFILE;
-    #[cfg(feature = "board-sensecap-solar-node")]
-    let lora_profile = DEFAULT_869_PROFILE;
     let lora_id = LoraInterface::interface_id(&lora_profile);
     static LORA_STATUS: StaticCell<EmbassyInterfaceStatus> = StaticCell::new();
     let lora_status: &'static EmbassyInterfaceStatus = LORA_STATUS.init(
