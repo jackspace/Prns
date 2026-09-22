@@ -118,11 +118,7 @@ impl SolarNodeBoard {
 
         HELD_IO.lock(|held| {
             *held.borrow_mut() = Some(HeldIo {
-                radio_rx_enable: Output::new(
-                    peripherals.P0_05,
-                    Level::Low,
-                    OutputDrive::Standard,
-                ),
+                radio_rx_enable: Output::new(peripherals.P0_05, Level::Low, OutputDrive::Standard),
             });
         });
 

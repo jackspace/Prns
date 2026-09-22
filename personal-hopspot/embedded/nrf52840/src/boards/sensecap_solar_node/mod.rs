@@ -9,8 +9,7 @@ pub(crate) use gnss::{
     control as control_gnss, drive as drive_gnss, snapshot as gnss_snapshot, SolarNodeGnss as Gnss,
 };
 pub(crate) use hardware::{
-    SolarNodeBoard as Board, SolarNodeHardware as Hardware,
-    SolarNodeLoraInterface as LoraInterface,
+    SolarNodeBoard as Board, SolarNodeHardware as Hardware, SolarNodeLoraInterface as LoraInterface,
 };
 pub(crate) use identity::bootstrap_node_identity;
 

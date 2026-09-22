@@ -1,6 +1,10 @@
 use personal_rns::usb_auto::WebUsbBootloaderEntry;
 
-#[cfg(any(feature = "board-t096", feature = "board-t1000e", feature = "board-sensecap-solar-node"))]
+#[cfg(any(
+    feature = "board-t096",
+    feature = "board-t1000e",
+    feature = "board-sensecap-solar-node"
+))]
 mod request {
     use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -60,19 +64,35 @@ mod request {
 }
 
 pub const fn webusb_entry() -> WebUsbBootloaderEntry {
-    #[cfg(any(feature = "board-t096", feature = "board-t1000e", feature = "board-sensecap-solar-node"))]
+    #[cfg(any(
+        feature = "board-t096",
+        feature = "board-t1000e",
+        feature = "board-sensecap-solar-node"
+    ))]
     return WebUsbBootloaderEntry::Supported {
         request: request::request,
     };
 
-    #[cfg(not(any(feature = "board-t096", feature = "board-t1000e", feature = "board-sensecap-solar-node")))]
+    #[cfg(not(any(
+        feature = "board-t096",
+        feature = "board-t1000e",
+        feature = "board-sensecap-solar-node"
+    )))]
     WebUsbBootloaderEntry::Unsupported
 }
 
 pub async fn wait() -> ! {
-    #[cfg(any(feature = "board-t096", feature = "board-t1000e", feature = "board-sensecap-solar-node"))]
+    #[cfg(any(
+        feature = "board-t096",
+        feature = "board-t1000e",
+        feature = "board-sensecap-solar-node"
+    ))]
     request::wait().await;
 
-    #[cfg(not(any(feature = "board-t096", feature = "board-t1000e", feature = "board-sensecap-solar-node")))]
+    #[cfg(not(any(
+        feature = "board-t096",
+        feature = "board-t1000e",
+        feature = "board-sensecap-solar-node"
+    )))]
     core::future::pending().await
 }

@@ -55,14 +55,14 @@ impl RemoteControlIdentityFlash {
 
 #[cfg(feature = "board-mesh-tower-v2")]
 pub(crate) mod mesh_tower_v2;
+#[cfg(feature = "board-sensecap-solar-node")]
+pub(crate) mod sensecap_solar_node;
 #[cfg(feature = "board-t096")]
 pub(crate) mod t096;
 #[cfg(feature = "board-t1000e")]
 pub(crate) mod t1000e;
 #[cfg(feature = "board-t114")]
 pub(crate) mod t114;
-#[cfg(feature = "board-sensecap-solar-node")]
-pub(crate) mod sensecap_solar_node;
 #[cfg(feature = "board-t-echo")]
 pub(crate) mod t_echo;
 
@@ -75,6 +75,15 @@ pub(crate) mod t_echo;
     not(feature = "board-t-echo")
 ))]
 pub(crate) use mesh_tower_v2 as selected;
+#[cfg(all(
+    feature = "board-sensecap-solar-node",
+    not(feature = "board-mesh-tower-v2"),
+    not(feature = "board-t096"),
+    not(feature = "board-t1000e"),
+    not(feature = "board-t114"),
+    not(feature = "board-t-echo")
+))]
+pub(crate) use sensecap_solar_node as selected;
 #[cfg(all(
     feature = "board-t096",
     not(feature = "board-mesh-tower-v2"),
@@ -103,15 +112,6 @@ pub(crate) use t1000e as selected;
     not(feature = "board-t-echo")
 ))]
 pub(crate) use t114 as selected;
-#[cfg(all(
-    feature = "board-sensecap-solar-node",
-    not(feature = "board-mesh-tower-v2"),
-    not(feature = "board-t096"),
-    not(feature = "board-t1000e"),
-    not(feature = "board-t114"),
-    not(feature = "board-t-echo")
-))]
-pub(crate) use sensecap_solar_node as selected;
 #[cfg(all(
     feature = "board-t-echo",
     not(feature = "board-mesh-tower-v2"),
