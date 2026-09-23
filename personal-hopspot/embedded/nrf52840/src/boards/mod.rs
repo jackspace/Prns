@@ -13,7 +13,8 @@ use prns_core::entropy::{EntropySource, RuntimeEntropy};
     feature = "board-t1000e",
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 mod status_led;
 
@@ -107,6 +108,8 @@ pub(crate) mod mesh_tower_v2;
 pub(crate) mod rak10724;
 #[cfg(feature = "board-rak4631")]
 pub(crate) mod rak4631;
+#[cfg(feature = "board-sensecap-solar-node")]
+pub(crate) mod sensecap_solar_node;
 #[cfg(feature = "board-t096")]
 pub(crate) mod t096;
 #[cfg(feature = "board-t1000e")]
@@ -124,7 +127,8 @@ pub(crate) mod t_echo;
     not(feature = "board-t1000e"),
     not(feature = "board-mesh-tower-v2"),
     not(feature = "board-rak4631"),
-    not(feature = "board-rak10724")
+    not(feature = "board-rak10724"),
+    not(feature = "board-sensecap-solar-node")
 ))]
 pub(crate) use mesh_pocket as selected;
 
@@ -136,7 +140,8 @@ pub(crate) use mesh_pocket as selected;
     not(feature = "board-mesh-pocket"),
     not(feature = "board-t1000e"),
     not(feature = "board-rak4631"),
-    not(feature = "board-rak10724")
+    not(feature = "board-rak10724"),
+    not(feature = "board-sensecap-solar-node")
 ))]
 pub(crate) use mesh_tower_v2 as selected;
 #[cfg(all(
@@ -158,9 +163,22 @@ pub(crate) use rak10724 as selected;
     not(feature = "board-mesh-pocket"),
     not(feature = "board-t1000e"),
     not(feature = "board-mesh-tower-v2"),
-    not(feature = "board-rak10724")
+    not(feature = "board-rak10724"),
+    not(feature = "board-sensecap-solar-node")
 ))]
 pub(crate) use rak4631 as selected;
+#[cfg(all(
+    feature = "board-sensecap-solar-node",
+    not(feature = "board-t-echo"),
+    not(feature = "board-t096"),
+    not(feature = "board-t114"),
+    not(feature = "board-mesh-pocket"),
+    not(feature = "board-t1000e"),
+    not(feature = "board-mesh-tower-v2"),
+    not(feature = "board-rak4631"),
+    not(feature = "board-rak10724")
+))]
+pub(crate) use sensecap_solar_node as selected;
 #[cfg(all(
     feature = "board-t096",
     not(feature = "board-t-echo"),
@@ -169,7 +187,8 @@ pub(crate) use rak4631 as selected;
     not(feature = "board-t1000e"),
     not(feature = "board-mesh-tower-v2"),
     not(feature = "board-rak4631"),
-    not(feature = "board-rak10724")
+    not(feature = "board-rak10724"),
+    not(feature = "board-sensecap-solar-node")
 ))]
 #[allow(unused_imports)] // Reserved for the runtime once the bring-up boundary is cleared.
 pub(crate) use t096 as selected;
@@ -181,7 +200,8 @@ pub(crate) use t096 as selected;
     not(feature = "board-mesh-pocket"),
     not(feature = "board-mesh-tower-v2"),
     not(feature = "board-rak4631"),
-    not(feature = "board-rak10724")
+    not(feature = "board-rak10724"),
+    not(feature = "board-sensecap-solar-node")
 ))]
 pub(crate) use t1000e as selected;
 #[cfg(all(
@@ -192,7 +212,8 @@ pub(crate) use t1000e as selected;
     not(feature = "board-t1000e"),
     not(feature = "board-mesh-tower-v2"),
     not(feature = "board-rak4631"),
-    not(feature = "board-rak10724")
+    not(feature = "board-rak10724"),
+    not(feature = "board-sensecap-solar-node")
 ))]
 pub(crate) use t114 as selected;
 #[cfg(all(
@@ -203,6 +224,7 @@ pub(crate) use t114 as selected;
     not(feature = "board-t1000e"),
     not(feature = "board-mesh-tower-v2"),
     not(feature = "board-rak4631"),
-    not(feature = "board-rak10724")
+    not(feature = "board-rak10724"),
+    not(feature = "board-sensecap-solar-node")
 ))]
 pub(crate) use t_echo as selected;

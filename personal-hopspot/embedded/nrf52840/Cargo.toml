@@ -26,6 +26,7 @@ board-t1000e = ["cortex-m/critical-section-single-core"]
 board-mesh-tower-v2 = ["embassy-nrf/nfc-pins-as-gpio"]
 board-rak4631 = ["embassy-nrf/nfc-pins-as-gpio", "softdevice-s140-v6"]
 board-rak10724 = ["embassy-nrf/nfc-pins-as-gpio", "softdevice-s140-v6"]
+board-sensecap-solar-node = ["softdevice-s140-v7"]
 softdevice-s140-v6 = ["dep:nrf-softdevice", "nrf-softdevice/s140-v6"]
 softdevice-s140-v7 = ["dep:nrf-softdevice", "nrf-softdevice/s140-v7"]
 
@@ -72,6 +73,11 @@ required-features = ["board-rak4631"]
 name = "rak10724"
 path = "src/bin/rak10724.rs"
 required-features = ["board-rak10724"]
+
+[[bin]]
+name = "sensecap-solar-node"
+path = "src/bin/sensecap_solar_node.rs"
+required-features = ["board-sensecap-solar-node"]
 
 [dependencies]
 personal-rns = { path = "../../../personal-rns", default-features = false, features = ["embassy-host", "flash", "lora", "bluetooth-auto", "usb"] }

@@ -5,7 +5,8 @@ use personal_rns::usb_auto::WebUsbBootloaderEntry;
     feature = "board-t1000e",
     feature = "board-mesh-pocket",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 mod request {
     use core::sync::atomic::{AtomicBool, Ordering};
@@ -21,7 +22,8 @@ mod request {
             feature = "board-t096",
             feature = "board-mesh-pocket",
             feature = "board-rak4631",
-            feature = "board-rak10724"
+            feature = "board-rak10724",
+            feature = "board-sensecap-solar-node"
         ))]
         Rejected,
     }
@@ -42,7 +44,8 @@ mod request {
                         feature = "board-t096",
                         feature = "board-mesh-pocket",
                         feature = "board-rak4631",
-                        feature = "board-rak10724"
+                        feature = "board-rak10724",
+                        feature = "board-sensecap-solar-node"
                     ))]
                     ResetPreparation::Rejected => {}
                 }
@@ -64,7 +67,8 @@ mod request {
         feature = "board-t096",
         feature = "board-mesh-pocket",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     fn prepare_bootloader_reset() -> ResetPreparation {
         const ADAFRUIT_UF2_DFU_GPREGRET: u32 = 0x57;
@@ -86,7 +90,8 @@ pub const fn webusb_entry() -> WebUsbBootloaderEntry {
         feature = "board-t1000e",
         feature = "board-mesh-pocket",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     return WebUsbBootloaderEntry::Supported {
         request: request::request,
@@ -97,7 +102,8 @@ pub const fn webusb_entry() -> WebUsbBootloaderEntry {
         feature = "board-t1000e",
         feature = "board-mesh-pocket",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     )))]
     WebUsbBootloaderEntry::Unsupported
 }
@@ -108,7 +114,8 @@ pub async fn wait() -> ! {
         feature = "board-t1000e",
         feature = "board-mesh-pocket",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     request::wait().await;
 
@@ -117,7 +124,8 @@ pub async fn wait() -> ! {
         feature = "board-t1000e",
         feature = "board-mesh-pocket",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     )))]
     core::future::pending().await
 }

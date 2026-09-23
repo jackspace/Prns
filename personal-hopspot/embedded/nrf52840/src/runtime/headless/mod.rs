@@ -45,7 +45,8 @@ use super::entropy::install_hal_runtime_entropy;
     feature = "board-t114",
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 use super::entropy::install_softdevice_runtime_entropy;
 #[cfg(any(
@@ -53,7 +54,8 @@ use super::entropy::install_softdevice_runtime_entropy;
     feature = "board-t114",
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 use super::entropy::prepare_softdevice_runtime_entropy;
 use super::entropy::{runtime_entropy, seed_from_hal};
@@ -63,7 +65,8 @@ use super::entropy::{runtime_entropy, seed_from_hal};
     feature = "board-t114",
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 mod bluetooth;
 #[cfg(any(feature = "board-t096", feature = "board-t114"))]
@@ -72,14 +75,16 @@ mod remote_control;
     feature = "board-t1000e",
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 #[path = "remote_control_headless.rs"]
 mod remote_control;
 #[cfg(any(
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 #[path = "mesh_tower_v2.rs"]
 mod selected;
@@ -103,7 +108,8 @@ const LORA_OUTBOUND_DEPTH: usize = Storage::MAX_OUTGOING_RESOURCE_REACTION_FRAME
     feature = "board-t114",
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 const BLE_OUTBOUND_DEPTH: usize = Storage::MAX_OUTGOING_RESOURCE_REACTION_FRAMES;
 const NOTIFY_CAP: usize = minimum_manifold_notification_capacity(LANE_COUNT, LANE_DEPTH);
@@ -124,7 +130,8 @@ const PACKET_PHY_INDEX_BUCKETS: usize =
     feature = "board-t114",
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 const _: () = assert!(Storage::LINK_SESSIONS > bluetooth::MEMBERS);
 
@@ -172,7 +179,8 @@ static LORA_MANIFOLD_LANE: StaticManifoldLane<
     feature = "board-t114",
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 static BLE_MANIFOLD_LANE: StaticManifoldLane<
     Mtx,
@@ -216,7 +224,8 @@ pub async fn run(spawner: Spawner) -> ! {
         feature = "board-t114",
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     let (
         (node_bootstrap, remote_control_bootstrap, factory_grant, ble_bootstrap, entropy),
@@ -248,7 +257,8 @@ pub async fn run(spawner: Spawner) -> ! {
         feature = "board-t114",
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     let ble_identity = Some(ble_bootstrap.into_identity());
     #[cfg(feature = "board-t096")]
@@ -285,7 +295,8 @@ pub async fn run(spawner: Spawner) -> ! {
     #[cfg(any(
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     let Hardware {
         usb: usb_driver,
@@ -329,7 +340,8 @@ pub async fn run(spawner: Spawner) -> ! {
         feature = "board-t114",
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     let entropy = prepare_softdevice_runtime_entropy(entropy);
     #[cfg(any(
@@ -337,7 +349,8 @@ pub async fn run(spawner: Spawner) -> ! {
         feature = "board-t114",
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     let sd = bluetooth::enable(spawner, vbus, ble_identity);
     // softdevice_task and GATT slots are spawned, not running. Embassy will not
@@ -347,7 +360,8 @@ pub async fn run(spawner: Spawner) -> ! {
     #[cfg(any(
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     Timer::after_millis(100).await;
     #[cfg(any(
@@ -355,7 +369,8 @@ pub async fn run(spawner: Spawner) -> ! {
         feature = "board-t114",
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     install_softdevice_runtime_entropy(entropy, sd);
 
@@ -364,7 +379,8 @@ pub async fn run(spawner: Spawner) -> ! {
         feature = "board-t114",
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     let shared_flash = super::learned_state::take_flash(sd);
     #[cfg(feature = "board-t1000e")]
@@ -448,7 +464,8 @@ pub async fn run(spawner: Spawner) -> ! {
         feature = "board-t114",
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     let ble_supervisor_lane = ble_identity.as_ref().map(|_| {
         manifold_lanes
@@ -502,11 +519,12 @@ pub async fn run(spawner: Spawner) -> ! {
         feature = "board-t114",
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     let bluetooth = bluetooth::prepare(ble_identity, ble_supervisor_lane);
     let heartbeat = async move {
-        #[cfg(any(feature = "board-rak4631", feature = "board-rak10724"))]
+        #[cfg(any(feature = "board-rak4631", feature = "board-rak10724", feature = "board-sensecap-solar-node"))]
         status_led.boot_splash().await;
         loop {
             status_led.illuminate();
@@ -583,7 +601,8 @@ pub async fn run(spawner: Spawner) -> ! {
     #[cfg(any(
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     selected::run(
         io,

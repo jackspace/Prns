@@ -8,10 +8,11 @@
     feature = "board-t1000e",
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 )))]
 compile_error!(
-    "select exactly one nRF52840 board feature; available: board-t-echo, board-t096, board-t114, board-mesh-pocket, board-t1000e, board-mesh-tower-v2, board-rak4631, board-rak10724"
+    "select exactly one nRF52840 board feature; available: board-t-echo, board-t096, board-t114, board-mesh-pocket, board-t1000e, board-mesh-tower-v2, board-rak4631, board-rak10724, board-sensecap-solar-node"
 );
 
 #[cfg(any(
@@ -42,7 +43,15 @@ compile_error!(
     all(feature = "board-mesh-pocket", feature = "board-rak10724"),
     all(feature = "board-t1000e", feature = "board-rak10724"),
     all(feature = "board-mesh-tower-v2", feature = "board-rak10724"),
-    all(feature = "board-rak4631", feature = "board-rak10724")
+    all(feature = "board-rak4631", feature = "board-rak10724"),
+    all(feature = "board-t-echo", feature = "board-sensecap-solar-node"),
+    all(feature = "board-t096", feature = "board-sensecap-solar-node"),
+    all(feature = "board-t114", feature = "board-sensecap-solar-node"),
+    all(feature = "board-mesh-pocket", feature = "board-sensecap-solar-node"),
+    all(feature = "board-t1000e", feature = "board-sensecap-solar-node"),
+    all(feature = "board-mesh-tower-v2", feature = "board-sensecap-solar-node"),
+    all(feature = "board-rak4631", feature = "board-sensecap-solar-node"),
+    all(feature = "board-rak10724", feature = "board-sensecap-solar-node")
 ))]
 compile_error!("nRF52840 board features are mutually exclusive");
 
@@ -87,6 +96,12 @@ compile_error!("RAK4631 does not support S140 7.x");
 
 #[cfg(all(feature = "board-rak10724", feature = "softdevice-s140-v7"))]
 compile_error!("RAK10724 does not support S140 7.x");
+
+#[cfg(all(feature = "board-sensecap-solar-node", not(feature = "softdevice-s140-v7")))]
+compile_error!("SenseCAP Solar Node requires softdevice-s140-v7; the XIAO nRF52840 bootloader ships S140 7.3.0");
+
+#[cfg(all(feature = "board-sensecap-solar-node", feature = "softdevice-s140-v6"))]
+compile_error!("SenseCAP Solar Node does not support S140 6.x");
 
 #[cfg(all(feature = "softdevice-s140-v6", feature = "softdevice-s140-v7"))]
 compile_error!("S140 compatibility features are mutually exclusive");
@@ -136,7 +151,8 @@ mod retained_display;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-t096",
@@ -146,7 +162,8 @@ mod retained_display;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-t114",
@@ -156,7 +173,8 @@ mod retained_display;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-mesh-pocket",
@@ -166,7 +184,8 @@ mod retained_display;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-t1000e",
@@ -176,7 +195,8 @@ mod retained_display;
         not(feature = "board-mesh-pocket"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-mesh-tower-v2",
@@ -186,7 +206,8 @@ mod retained_display;
         not(feature = "board-mesh-pocket"),
         not(feature = "board-t1000e"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-rak4631",
@@ -196,7 +217,8 @@ mod retained_display;
         not(feature = "board-mesh-pocket"),
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-rak10724",
@@ -207,6 +229,17 @@ mod retained_display;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631")
+    ),
+    all(
+        feature = "board-sensecap-solar-node",
+        not(feature = "board-t-echo"),
+        not(feature = "board-t096"),
+        not(feature = "board-t114"),
+        not(feature = "board-mesh-pocket"),
+        not(feature = "board-t1000e"),
+        not(feature = "board-mesh-tower-v2"),
+        not(feature = "board-rak4631"),
+        not(feature = "board-rak10724")
     )
 ))]
 mod runtime;
@@ -221,7 +254,8 @@ mod storage;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-t096",
@@ -231,7 +265,8 @@ mod storage;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-t114",
@@ -241,7 +276,8 @@ mod storage;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-mesh-pocket",
@@ -251,7 +287,8 @@ mod storage;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-t1000e",
@@ -261,7 +298,8 @@ mod storage;
         not(feature = "board-mesh-pocket"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-mesh-tower-v2",
@@ -271,7 +309,8 @@ mod storage;
         not(feature = "board-mesh-pocket"),
         not(feature = "board-t1000e"),
         not(feature = "board-rak4631"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-rak4631",
@@ -281,7 +320,8 @@ mod storage;
         not(feature = "board-mesh-pocket"),
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
-        not(feature = "board-rak10724")
+        not(feature = "board-rak10724"),
+        not(feature = "board-sensecap-solar-node")
     ),
     all(
         feature = "board-rak10724",
@@ -292,6 +332,17 @@ mod storage;
         not(feature = "board-t1000e"),
         not(feature = "board-mesh-tower-v2"),
         not(feature = "board-rak4631")
+    ),
+    all(
+        feature = "board-sensecap-solar-node",
+        not(feature = "board-t-echo"),
+        not(feature = "board-t096"),
+        not(feature = "board-t114"),
+        not(feature = "board-mesh-pocket"),
+        not(feature = "board-t1000e"),
+        not(feature = "board-mesh-tower-v2"),
+        not(feature = "board-rak4631"),
+        not(feature = "board-rak10724")
     )
 ))]
 pub use runtime::run;

@@ -94,6 +94,11 @@ fn memory_x_layouts_derive_from_each_canonical_profile() {
             AddressRange::new(0x26000, 0xE2000),
             AddressRange::new(0x2000_C000, 0x2004_0000),
         ),
+        (
+            &SENSECAP_SOLAR_NODE,
+            AddressRange::new(0x27000, 0xE9000),
+            AddressRange::new(0x2000_C000, 0x2004_0000),
+        ),
     ] {
         assert_eq!(
             NRF52840_MEMORY_X_BINDING.resolve(profile),

@@ -1,5 +1,5 @@
 use super::{
-    MESH_POCKET_10000, MESH_POCKET_5000, MESH_TOWER_V2, RAK10724, RAK4631, T096, T1000_E, T114,
+    MESH_POCKET_10000, MESH_POCKET_5000, MESH_TOWER_V2, RAK10724, RAK4631, SENSECAP_SOLAR_NODE, T096, T1000_E, T114,
     T_ECHO_S140_V6, T_ECHO_S140_V7,
 };
 use crate::profiles::linker::{LinkerAddressProfile, LinkerAddressSpace};
@@ -28,8 +28,10 @@ const RAK4631_LINKER: LinkerAddressProfile =
     LinkerAddressProfile::new(RAK4631.id, &NRF52840_SPACES);
 const RAK10724_LINKER: LinkerAddressProfile =
     LinkerAddressProfile::new(RAK10724.id, &NRF52840_SPACES);
+const SENSECAP_SOLAR_NODE_LINKER: LinkerAddressProfile =
+    LinkerAddressProfile::new(SENSECAP_SOLAR_NODE.id, &NRF52840_SPACES);
 
-pub(in crate::profiles) const LINKER_ADDRESS_PROFILES: [&LinkerAddressProfile; 10] = [
+pub(in crate::profiles) const LINKER_ADDRESS_PROFILES: [&LinkerAddressProfile; 11] = [
     &T_ECHO_S140_V6_LINKER,
     &T_ECHO_S140_V7_LINKER,
     &T096_LINKER,
@@ -40,4 +42,5 @@ pub(in crate::profiles) const LINKER_ADDRESS_PROFILES: [&LinkerAddressProfile; 1
     &MESH_TOWER_V2_LINKER,
     &RAK4631_LINKER,
     &RAK10724_LINKER,
+    &SENSECAP_SOLAR_NODE_LINKER,
 ];

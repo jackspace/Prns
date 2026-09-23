@@ -5,7 +5,8 @@ enum Polarity {
         feature = "board-t096",
         feature = "board-t1000e",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     ActiveHigh,
     #[cfg(any(feature = "board-t114", feature = "board-mesh-tower-v2"))]
@@ -22,7 +23,8 @@ impl StatusLed {
         feature = "board-t096",
         feature = "board-t1000e",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     pub(crate) fn active_high(output: Output<'static>) -> Self {
         Self {
@@ -45,7 +47,8 @@ impl StatusLed {
                 feature = "board-t096",
                 feature = "board-t1000e",
                 feature = "board-rak4631",
-                feature = "board-rak10724"
+                feature = "board-rak10724",
+                feature = "board-sensecap-solar-node"
             ))]
             Polarity::ActiveHigh => self.output.set_high(),
             #[cfg(any(feature = "board-t114", feature = "board-mesh-tower-v2"))]
@@ -59,7 +62,8 @@ impl StatusLed {
                 feature = "board-t096",
                 feature = "board-t1000e",
                 feature = "board-rak4631",
-                feature = "board-rak10724"
+                feature = "board-rak10724",
+                feature = "board-sensecap-solar-node"
             ))]
             Polarity::ActiveHigh => self.output.set_low(),
             #[cfg(any(feature = "board-t114", feature = "board-mesh-tower-v2"))]
@@ -68,7 +72,7 @@ impl StatusLed {
     }
 
     /// Two short flashes so a headless board shows it reached the runtime, then heartbeat.
-    #[cfg(any(feature = "board-rak4631", feature = "board-rak10724"))]
+    #[cfg(any(feature = "board-rak4631", feature = "board-rak10724", feature = "board-sensecap-solar-node"))]
     pub(crate) async fn boot_splash(&mut self) {
         use embassy_time::Timer;
         for _ in 0..2 {

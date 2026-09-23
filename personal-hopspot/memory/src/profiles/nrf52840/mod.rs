@@ -438,6 +438,37 @@ const T1000E_REGIONS: [MemoryRegion; 7] = [
     ),
 ];
 
+// SenseCAP Solar Node P1/P1-Pro: XIAO nRF52840 Plus on the stock Adafruit bootloader with the
+// resident S140 7.3.0, so the application starts at 0x27000 like the T1000-E. Identity offsets are
+// the ones the headless bring-up already used (PR #227), so a node keeps its identity across the
+// move to this Bluetooth-capable layout; the BLE identity takes one page of the former reserve.
+const SENSECAP_SOLAR_NODE_REGIONS: [MemoryRegion; 8] = [
+    T1000E_REGIONS[0],
+    T1000E_REGIONS[1],
+    T1000E_REGIONS[2],
+    T1000E_REGIONS[3],
+    T1000E_REGIONS[4],
+    region(
+        "ble-identity",
+        FLASH,
+        0xF1000,
+        0xF2000,
+        RegionOwner::DeviceIdentity,
+        RegionRetention::PreserveAcrossFirmwareUpdate,
+        RegionRole::BleIdentity,
+    ),
+    region(
+        "reserved",
+        FLASH,
+        0xF2000,
+        0xF4000,
+        RegionOwner::Factory,
+        RegionRetention::Immutable,
+        RegionRole::Reserved,
+    ),
+    T1000E_REGIONS[6],
+];
+
 const T1000E_JOURNALS: [JournalLayout; 1] = [journal(0xEA000, 0xEB000, 0xEC000, 0xEE000, 0xF0000)];
 
 pub const T_ECHO_S140_V6: MemoryProfile = MemoryProfile {
@@ -540,7 +571,17 @@ pub const RAK10724: MemoryProfile = MemoryProfile {
     runtime_reservations: &NRF_RUNTIME_RESERVATIONS,
 };
 
-const NRF52840_MEMORY_X_PROFILES: [MemoryProfileId; 10] = [
+pub const SENSECAP_SOLAR_NODE: MemoryProfile = MemoryProfile {
+    id: MemoryProfileId("sensecap-solar-node"),
+    architecture: ProcessorArchitecture::ThumbV7em,
+    address_spaces: &NRF52840_S140_RAM_SPACES,
+    regions: &SENSECAP_SOLAR_NODE_REGIONS,
+    firmware: firmware_placement(0x27000, 0xE9000, 0xEA000),
+    journals: &T1000E_JOURNALS,
+    runtime_reservations: &NRF_RUNTIME_RESERVATIONS,
+};
+
+const NRF52840_MEMORY_X_PROFILES: [MemoryProfileId; 11] = [
     T_ECHO_S140_V6.id,
     T_ECHO_S140_V7.id,
     T096.id,
@@ -551,6 +592,7 @@ const NRF52840_MEMORY_X_PROFILES: [MemoryProfileId; 10] = [
     MESH_TOWER_V2.id,
     RAK4631.id,
     RAK10724.id,
+    SENSECAP_SOLAR_NODE.id,
 ];
 
 pub const NRF52840_MEMORY_X_BINDING: NrfMemoryXBinding = NrfMemoryXBinding {

@@ -4,7 +4,8 @@ use personal_hopspot_core as hopspot;
 #[cfg(any(
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 use personal_rns::bluetooth_auto::BluetoothAutoStatus;
 use personal_rns::interfaces::subghz::{
@@ -24,7 +25,8 @@ use personal_rns::remote_control::{
 #[cfg(any(
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 use personal_rns::remote_control::{
     RemoteControlDiscoveryGroups, RemoteControlDiscoveryGroupsInventoryOutcome,
@@ -40,7 +42,8 @@ use crate::boards::selected as board;
 #[cfg(any(
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 use super::bluetooth::{BLE_SHARED, BLE_SUPERVISOR_ID, MEMBERS};
 use super::{COMMANDS, COMPLETION, INTERFACE_STORE, REMOTE_CONTROL_COMMANDS};
@@ -51,13 +54,15 @@ const USB_ENABLED: u8 = 1 << 1;
 #[cfg(any(
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 const BLUETOOTH_ENABLED: u8 = 1 << 2;
 #[cfg(any(
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 const SNAPSHOT_CAPACITY: usize = MEMBERS + 3;
 #[cfg(feature = "board-t1000e")]
@@ -116,7 +121,8 @@ pub(super) fn capabilities() -> RemoteControlCapabilities {
     #[cfg(any(
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     for kind in [
         RemoteControlRequestKind::SetInterfaceGroup,
@@ -227,19 +233,22 @@ async fn execute(
             #[cfg(any(
                 feature = "board-mesh-tower-v2",
                 feature = "board-rak4631",
-                feature = "board-rak10724"
+                feature = "board-rak10724",
+                feature = "board-sensecap-solar-node"
             ))]
             let ble_groups = BluetoothAutoStatus::new(&BLE_SHARED).discovery_groups();
             #[cfg(any(
                 feature = "board-mesh-tower-v2",
                 feature = "board-rak4631",
-                feature = "board-rak10724"
+                feature = "board-rak10724",
+                feature = "board-sensecap-solar-node"
             ))]
             let ble_group = hopspot::singleton_discovery_group(&ble_groups);
             #[cfg(not(any(
                 feature = "board-mesh-tower-v2",
                 feature = "board-rak4631",
-                feature = "board-rak10724"
+                feature = "board-rak10724",
+                feature = "board-sensecap-solar-node"
             )))]
             let ble_group = None;
             let outcome = hopspot::remote_control_interface_config_from_snapshots(
@@ -296,7 +305,8 @@ async fn execute(
         #[cfg(any(
             feature = "board-mesh-tower-v2",
             feature = "board-rak4631",
-            feature = "board-rak10724"
+            feature = "board-rak10724",
+            feature = "board-sensecap-solar-node"
         ))]
         RemoteControlHostCommand::SetInterfaceGroup { id, group } => {
             let groups = personal_rns::interfaces::DiscoveryGroupSet::from_singleton(group);
@@ -318,7 +328,8 @@ async fn execute(
         #[cfg(any(
             feature = "board-mesh-tower-v2",
             feature = "board-rak4631",
-            feature = "board-rak10724"
+            feature = "board-rak10724",
+            feature = "board-sensecap-solar-node"
         ))]
         RemoteControlHostCommand::InventoryInterfaceDiscoveryGroups { id } => {
             let outcome = if id == BLE_SUPERVISOR_ID {
@@ -335,7 +346,8 @@ async fn execute(
         #[cfg(any(
             feature = "board-mesh-tower-v2",
             feature = "board-rak4631",
-            feature = "board-rak10724"
+            feature = "board-rak10724",
+            feature = "board-sensecap-solar-node"
         ))]
         RemoteControlHostCommand::ReplaceInterfaceDiscoveryGroups { id, groups } => {
             let groups = groups.into_groups();
@@ -433,7 +445,8 @@ async fn execute(
 #[cfg(any(
     feature = "board-mesh-tower-v2",
     feature = "board-rak4631",
-    feature = "board-rak10724"
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
 ))]
 async fn replace_bluetooth_discovery_groups(
     id: InterfaceId,
@@ -530,7 +543,8 @@ fn interface_bit(context: &Context<'_>, id: InterfaceId) -> Option<u8> {
         #[cfg(any(
             feature = "board-mesh-tower-v2",
             feature = "board-rak4631",
-            feature = "board-rak10724"
+            feature = "board-rak10724",
+            feature = "board-sensecap-solar-node"
         ))]
         if id == BLE_SUPERVISOR_ID {
             return Some(BLUETOOTH_ENABLED);
@@ -568,7 +582,8 @@ fn apply_interface_enabled(context: &Context<'_>, id: InterfaceId, enabled: bool
         #[cfg(any(
             feature = "board-mesh-tower-v2",
             feature = "board-rak4631",
-            feature = "board-rak10724"
+            feature = "board-rak10724",
+            feature = "board-sensecap-solar-node"
         ))]
         if id == BLE_SUPERVISOR_ID {
             let status = BluetoothAutoStatus::new(&BLE_SHARED);
@@ -593,7 +608,8 @@ fn restore_desired_interfaces(context: &Context<'_>) {
     #[cfg(any(
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     {
         let bluetooth = BluetoothAutoStatus::new(&BLE_SHARED);
@@ -612,7 +628,8 @@ fn interfaces_match_desired(context: &Context<'_>) -> bool {
             #[cfg(any(
                 feature = "board-mesh-tower-v2",
                 feature = "board-rak4631",
-                feature = "board-rak10724"
+                feature = "board-rak10724",
+                feature = "board-sensecap-solar-node"
             ))]
             {
                 BluetoothAutoStatus::new(&BLE_SHARED).is_enabled()
@@ -621,7 +638,8 @@ fn interfaces_match_desired(context: &Context<'_>) -> bool {
             #[cfg(not(any(
                 feature = "board-mesh-tower-v2",
                 feature = "board-rak4631",
-                feature = "board-rak10724"
+                feature = "board-rak10724",
+                feature = "board-sensecap-solar-node"
             )))]
             {
                 true
@@ -643,7 +661,8 @@ fn enabled_interfaces(
     #[cfg(any(
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     if BluetoothAutoStatus::new(&BLE_SHARED).is_enabled() {
         enabled |= BLUETOOTH_ENABLED;
@@ -679,7 +698,8 @@ fn apply_scheduled(
                 #[cfg(any(
                     feature = "board-mesh-tower-v2",
                     feature = "board-rak4631",
-                    feature = "board-rak10724"
+                    feature = "board-rak10724",
+                    feature = "board-sensecap-solar-node"
                 ))]
                 if id == BLE_SUPERVISOR_ID {
                     BluetoothAutoStatus::new(&BLE_SHARED).disable();
@@ -692,7 +712,8 @@ fn apply_scheduled(
             #[cfg(any(
                 feature = "board-mesh-tower-v2",
                 feature = "board-rak4631",
-                feature = "board-rak10724"
+                feature = "board-rak10724",
+                feature = "board-sensecap-solar-node"
             ))]
             if desired_interfaces & BLUETOOTH_ENABLED != 0 {
                 BluetoothAutoStatus::new(&BLE_SHARED).enable();
@@ -706,7 +727,8 @@ fn apply_scheduled(
             #[cfg(any(
                 feature = "board-mesh-tower-v2",
                 feature = "board-rak4631",
-                feature = "board-rak10724"
+                feature = "board-rak10724",
+                feature = "board-sensecap-solar-node"
             ))]
             BluetoothAutoStatus::new(&BLE_SHARED).disable();
             #[cfg(feature = "board-t1000e")]
@@ -723,7 +745,8 @@ fn snapshots(
     #[cfg(any(
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     let bluetooth = BluetoothAutoStatus::new(&BLE_SHARED);
     let mut entries: heapless::Vec<(&dyn InterfaceStatus, Membership), SNAPSHOT_CAPACITY> =
@@ -737,7 +760,8 @@ fn snapshots(
     #[cfg(any(
         feature = "board-mesh-tower-v2",
         feature = "board-rak4631",
-        feature = "board-rak10724"
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
     ))]
     {
         let supervisor_id = bluetooth.id();

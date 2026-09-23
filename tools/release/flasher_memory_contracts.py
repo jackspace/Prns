@@ -95,6 +95,11 @@ UF2_MEMORY_CONTRACTS = {
         "firmware_owned": (0x00026000, 0x000e2000),
         "transport_envelope": (0x00026000, 0x000e2000),
     },
+    ("sensecap-solar-node", "s140", "7.3.0", "0x0123", 0x00027000, "0xada52840"): {
+        "profile": "sensecap-solar-node",
+        "firmware_owned": (0x00027000, 0x000e9000),
+        "transport_envelope": (0x00027000, 0x000e9000),
+    },
 }
 
 NRF_SERIAL_DFU_MEMORY_CONTRACTS = {
