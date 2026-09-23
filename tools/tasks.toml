@@ -376,6 +376,16 @@ entrypoint = ["python", "tools/device/hopspot-flash-local.py"]
 requires = ["cargo", "python"]
 
 [[task]]
+id = "device.nrf52.ble-legacy-dfu"
+summary = "Send a DFU package to an nRF52 Adafruit bootloader over Bluetooth, or finish or reset one left in OTA mode."
+domain = "device"
+effect = "device-write"
+platforms = ["any"]
+audience = ["developer"]
+entrypoint = ["python", "tools/device/nrf52-ble-legacy-dfu.py"]
+requires = ["python"]
+
+[[task]]
 id = "repo.cargo-check"
 summary = "Compile-check every host-compatible first-party Cargo workspace in parallel."
 domain = "repo"
