@@ -34,7 +34,9 @@ where
     I: Future,
     L: Future,
 {
-    board::control_gnss(hopspot::GnssReceiverCommand::Enable);
+    // Repeater build: nothing on a headless board consumes a fix, so keep the L76K unpowered
+    // behind its load switch, the way MeshTower V2 holds its GPS off until a GPS face exists.
+    board::control_gnss(hopspot::GnssReceiverCommand::Disable);
     join4(
         io,
         lora,
