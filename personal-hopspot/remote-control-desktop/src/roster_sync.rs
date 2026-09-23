@@ -29,10 +29,14 @@ const PULL_DOMAIN: &[u8] = b"reticulum.controller.roster.pull.v1";
 const CONTROLLER_USB_HOST_DESKTOP: [u8; 8] = [0xD0; 8];
 const CONTROLLER_USB_HOST_ANDROID: [u8; 8] = [0xD1; 8];
 const SIBLING_REMOVED_MARK: &str = "removed";
-/// Local display name for a wifi peer whose LL is *this* install. Must never ride roster sync.
-pub const THIS_CONTROLLER_PEER_ALIAS: &str = "This Controller";
+/// Local display name for a peer that is *this* install. Must never ride roster sync.
+pub const THIS_CONTROLLER_PEER_ALIAS: &str = "This controller";
 /// `peer-alias-links` value for [`THIS_CONTROLLER_PEER_ALIAS`] rows (local-only).
 pub const THIS_CONTROLLER_ALIAS_LINK: &str = "__this_controller__";
+/// Local display name for this install's Auto Wi-Fi dial to the default gateway.
+pub const AUTO_GATEWAY_PEER_ALIAS: &str = "Auto gateway";
+/// `peer-alias-links` value for [`AUTO_GATEWAY_PEER_ALIAS`] rows (local-only).
+pub const AUTO_GATEWAY_ALIAS_LINK: &str = "__auto_gateway__";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RosterMessageKind {
@@ -436,13 +440,16 @@ pub fn peer_alias_is_syncable(peer_id: &str) -> bool {
     }
 }
 
-/// "This Controller" names the local AutoWifi LL view of *this* install — never a shared fact.
+/// "This controller" and "Auto gateway" name paths on *this* install — never shared facts.
 #[must_use]
 pub fn peer_alias_value_is_syncable(value: Option<&str>) -> bool {
     !value
         .map(str::trim)
         .filter(|name| !name.is_empty())
-        .is_some_and(|name| name.eq_ignore_ascii_case(THIS_CONTROLLER_PEER_ALIAS))
+        .is_some_and(|name| {
+            name.eq_ignore_ascii_case(THIS_CONTROLLER_PEER_ALIAS)
+                || name.eq_ignore_ascii_case(AUTO_GATEWAY_PEER_ALIAS)
+        })
 }
 
 /// Links owned by this-controller / sibling-controller auto-fill stay off the roster.
@@ -455,7 +462,7 @@ pub fn peer_alias_link_is_local_only(
     if link.is_empty() {
         return false;
     }
-    if link == THIS_CONTROLLER_ALIAS_LINK {
+    if link == THIS_CONTROLLER_ALIAS_LINK || link == AUTO_GATEWAY_ALIAS_LINK {
         return true;
     }
     sibling_instance_hashes
@@ -1655,10 +1662,16 @@ mod tests {
     fn this_controller_peer_alias_value_is_not_syncable() {
         assert!(!peer_alias_value_is_syncable(Some("This Controller")));
         assert!(!peer_alias_value_is_syncable(Some("this controller")));
+        assert!(!peer_alias_value_is_syncable(Some("Auto gateway")));
+        assert!(!peer_alias_value_is_syncable(Some("auto gateway")));
         assert!(peer_alias_value_is_syncable(Some("Hv4A")));
         assert!(peer_alias_value_is_syncable(None));
         assert!(peer_alias_link_is_local_only(
             THIS_CONTROLLER_ALIAS_LINK,
+            std::iter::empty::<&str>()
+        ));
+        assert!(peer_alias_link_is_local_only(
+            AUTO_GATEWAY_ALIAS_LINK,
             std::iter::empty::<&str>()
         ));
         assert!(peer_alias_link_is_local_only(

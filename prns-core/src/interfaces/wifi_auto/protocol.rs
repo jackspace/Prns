@@ -102,6 +102,10 @@ pub const DEFAULT_DATA_PORT: u16 = 42671;
 /// A Prns extension for peers behind an isolating hotspot; it is distinct from the RNS UDP [`DEFAULT_DATA_PORT`].
 pub const TCP_RENDEZVOUS_PORT: u16 = 42699;
 
+/// Inventory name prefix for the Auto Wi-Fi TCP dial to the local default gateway.
+/// The remainder is the gateway IP address. Only that dial is named this way.
+pub const AUTO_WIFI_GATEWAY_DIAL_NAME_PREFIX: &str = "auto-gateway ";
+
 pub const PEERING_TIMEOUT_MS: u64 = 22_000;
 pub const PEERING_TOKEN_BYTES: usize = crate::crypto::SHA256_OUTPUT_LEN;
 

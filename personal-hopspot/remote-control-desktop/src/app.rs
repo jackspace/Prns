@@ -180,7 +180,7 @@ h1 { margin: 5px 0 8px; font-size: 31px; }
 .status.online { color: #167346; }
 .status.sleeping { color: #956b16; }
 .status.awaiting { color: #2d6a9f; }
-.button { border: 1px solid #b7c8bc; border-radius: 7px; background: white; color: #183d2b; padding: 7px 10px; font-family: inherit; font-size: 13px; font-weight: 400; line-height: normal; }
+.button { appearance: none; -webkit-appearance: none; border: 1px solid #b7c8bc; border-radius: 7px; background: white; color: #183d2b; padding: 7px 10px; font-family: inherit; font-size: 13px; font-weight: 400; line-height: normal; }
 .button:hover { background: #f3f7f4; }
 .button.primary { border-color: #246844; background: #246844; color: white; }
 .button.danger { border-color: #a3493f; color: #8b3029; }
@@ -520,6 +520,7 @@ pub fn App() -> Element {
                         expanded_targets.write().retain(|id| live_ids.contains(id));
                         // Build / battery come from Connect or explicit refresh only.
                         adopt_missing_aliases(target_aliases, backend.target_aliases());
+                        adopt_missing_aliases(peer_aliases, backend.peer_aliases());
                         targets.set(items);
                     }
                     Err(_) => {}
@@ -1257,11 +1258,8 @@ fn ManagedTargetConfiguration(
                                 div { dt { "Battery" } dd { "{battery}" } }
                             }
                             div { dt { "Address" } dd { "{target.id}" } }
-                            if let Some(transport) = target.network_transport {
-                                div { dt { "Transport" } dd { "{network_transport_label(transport)}" } }
-                            }
                             div {
-                                dt { "Announce" }
+                                dt { "Path found at" }
                                 dd {
                                     if let Some(path) = target.path.as_ref() {
                                         "{path.announced_at}"
@@ -1273,6 +1271,10 @@ fn ManagedTargetConfiguration(
                             div {
                                 dt { "Route" }
                                 dd { {format_target_route(target.path.as_ref())} }
+                            }
+                            div {
+                                dt { "Transport" }
+                                dd { "{network_transport_status(target.network_transport)}" }
                             }
                         }
                     }
@@ -5021,6 +5023,13 @@ fn network_transport_label(transport: RemoteControlNetworkTransport) -> &'static
     match transport {
         RemoteControlNetworkTransport::Enabled => "Enabled",
         RemoteControlNetworkTransport::Disabled => "Disabled",
+    }
+}
+
+fn network_transport_status(transport: Option<RemoteControlNetworkTransport>) -> &'static str {
+    match transport {
+        Some(transport) => network_transport_label(transport),
+        None => "Unknown",
     }
 }
 

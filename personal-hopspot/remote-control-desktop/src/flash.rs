@@ -647,7 +647,7 @@ pub fn identity_offset(slug: &str) -> Option<u32> {
         "xiao-esp32-c6" => Some(0x003D_F000),
         "t-echo" => Some(0x000E_2000),
         "t114" | "t096" => Some(0x000E_1000),
-        "mesh-tower-v2" | "rak4631" => Some(0x000E_2000),
+        "mesh-tower-v2" | "rak4631" | "rak10724" => Some(0x000E_2000),
         "t1000-e" => Some(0x000E_9000),
         _ => None,
     }
@@ -672,8 +672,8 @@ pub fn preparation_steps(profile: &str) -> &'static [&'static str] {
             "Double-reset the board until the HT-n5262G drive appears.",
             "Keep the USB data cable connected until the drive disappears after flash.",
         ],
-        "rak4631-uf2" => &[
-            "Double-reset the RAK4631 until the RAK4631 drive appears.",
+        "rak4631-uf2" | "rak10724-uf2" => &[
+            "Double-reset until the RAK4631 drive appears. The WisBlock 4631 and WisMesh 1W kits share this bootloader; confirm the printed core and LoRa module before flashing.",
             "Keep the USB data cable connected until the drive disappears after flash.",
         ],
         "t1000e-nrf-dfu" => &[
@@ -2263,6 +2263,8 @@ error: could not compile `personal-hopspot-esp32` (lib) due to 1 previous error
         assert!(hopspot_flash_writes_rc_vault("heltec-v4-r8"));
         assert!(hopspot_flash_writes_rc_vault("t-echo"));
         assert!(hopspot_flash_writes_rc_vault("rak4631"));
+        assert!(hopspot_flash_writes_rc_vault("rak10724"));
+        assert_eq!(identity_offset("rak10724"), Some(0x000E_2000));
         assert!(!hopspot_flash_writes_rc_vault("t1000-e"));
     }
 

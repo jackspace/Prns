@@ -693,6 +693,18 @@ impl Fleet {
         attached
     }
 
+    /// Record a display name on a member this fleet already added. Inventory copies that name onto the member row.
+    pub fn name_member(&self, id: InterfaceId, name: impl Into<String>) -> bool {
+        let Ok(mut interfaces) = self.interfaces.lock() else {
+            return false;
+        };
+        let Some(interface) = interfaces.get_mut(&id) else {
+            return false;
+        };
+        interface.name = Some(name.into());
+        true
+    }
+
     /// A [`Fleet`] wired to no manifold: member builds and host commands flow into the returned [`DetachedFleet`] tail and go nowhere. For driving a supervisor by hand (unit tests, a bench harness).
     #[must_use]
     pub fn detached(supervisor_id: InterfaceId) -> (Self, DetachedFleet) {

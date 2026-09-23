@@ -2351,6 +2351,9 @@ impl Supervisor {
                 TcpClientInterface::with_policy(target.clone(), self.policy, RENDEZVOUS_RECONNECT);
             let status = client.status();
             let attached = self.fleet.add(client);
+            let _ = self
+                .fleet
+                .name_member(attached.id(), gateway_dial_inventory_name(gateway));
             self.gateways.insert(
                 index,
                 GatewayDial {
@@ -2682,6 +2685,10 @@ fn gateway_for(routes: &HashMap<u32, IpAddr>, index: u32) -> Option<IpAddr> {
     routes.get(&index).copied()
 }
 
+fn gateway_dial_inventory_name(gateway: IpAddr) -> String {
+    format!("{}{gateway}", contract::AUTO_WIFI_GATEWAY_DIAL_NAME_PREFIX)
+}
+
 #[cfg(not(target_os = "ios"))]
 fn platform_gateway_inventory() -> GatewayInventory {
     Ok(netdev::get_interfaces()
@@ -2970,6 +2977,15 @@ mod tests {
 
     const TEST_DISCOVERY_CAPACITY: NonZeroU8 = NonZeroU8::new(8).unwrap();
     const TEST_FRAME_CAP: usize = 2_048;
+
+    #[test]
+    fn gateway_dial_name_is_the_prefix_plus_the_address() {
+        let gateway = IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1));
+        assert_eq!(
+            gateway_dial_inventory_name(gateway),
+            "auto-gateway 192.168.1.1"
+        );
+    }
 
     fn data_report(
         received: usize,

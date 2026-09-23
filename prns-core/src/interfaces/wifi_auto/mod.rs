@@ -24,8 +24,9 @@ pub use protocol::{
     BeaconVerdict, DiscoveryGroupLane, DiscoveryScope, FixedAutoInterfaceProtocol,
     FixedMultiAutoInterfaceProtocol, GroupBeaconObservation, MultiAutoInterfaceProtocol,
     MulticastAddressType, Peer, PeerObservation, PeerStore, PeerTable, PeeringToken,
-    DEFAULT_DATA_PORT, DEFAULT_DISCOVERY_PORT, DISCOVERY_GROUP, GROUP_ID, GROUP_NAME,
-    PEERING_TIMEOUT_MS, PEERING_TOKEN_BYTES, TCP_RENDEZVOUS_PORT, UNICAST_DISCOVERY_PORT,
+    AUTO_WIFI_GATEWAY_DIAL_NAME_PREFIX, DEFAULT_DATA_PORT, DEFAULT_DISCOVERY_PORT, DISCOVERY_GROUP,
+    GROUP_ID, GROUP_NAME, PEERING_TIMEOUT_MS, PEERING_TOKEN_BYTES, TCP_RENDEZVOUS_PORT,
+    UNICAST_DISCOVERY_PORT,
 };
 #[cfg(feature = "alloc")]
 pub use protocol::{HeapAutoInterfaceProtocol, HeapMultiAutoInterfaceProtocol};

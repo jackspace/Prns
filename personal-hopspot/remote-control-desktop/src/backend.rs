@@ -76,8 +76,8 @@ use crate::roster_sync::{
     replica_message, replica_path, retract_unsyncable_peer_alias_values,
     roster_sync_destination_hash, sibling_alias_is_syncable, strip_local_sibling_alias, write_pull,
     RosterDelta, RosterLabel, RosterLabelKind, RosterShared, RosterSync, TargetAttention,
-    ROSTER_SYNC_APP_NAME, ROSTER_SYNC_ASPECTS, ROSTER_SYNC_REQUEST_ENDPOINT_ID,
-    THIS_CONTROLLER_ALIAS_LINK, THIS_CONTROLLER_PEER_ALIAS,
+    AUTO_GATEWAY_ALIAS_LINK, AUTO_GATEWAY_PEER_ALIAS, ROSTER_SYNC_APP_NAME, ROSTER_SYNC_ASPECTS,
+    ROSTER_SYNC_REQUEST_ENDPOINT_ID, THIS_CONTROLLER_ALIAS_LINK, THIS_CONTROLLER_PEER_ALIAS,
 };
 
 const IDENTITY_HASH_BYTES: usize = 16;
@@ -2605,7 +2605,8 @@ impl RemoteControlBackend {
     }
 
     async fn request_control_path(&self, target_id: &str) -> Result<(), BackendError> {
-        self.announce_operator().await?;
+        // The link carries replies. Announcing this Controller on every Connect is what
+        // TCP gateways rate-limit, and the node does not need that flood to answer.
         let destination = self.require_control_destination(target_id).await?;
         eprintln!(
             "rnprobe: request_path for {target_id} dest={}",
@@ -2633,19 +2634,6 @@ impl RemoteControlBackend {
                 operation: "connect to target",
                 detail: "the controller has not stored that target yet".to_string(),
             })
-    }
-
-    async fn announce_operator(&self) -> Result<(), BackendError> {
-        let session = self.session()?;
-        session
-            .handle
-            .announce_now(AnnounceNow {
-                destination: session.operator_destination,
-                target: AnnounceTarget::AllInterfaces,
-                app_data: AnnounceAppData::Registered,
-            })
-            .await
-            .map_err(|error| operation("announce controller", error))
     }
 
     async fn control_announce_learned_at(
@@ -2892,6 +2880,14 @@ impl RemoteControlBackend {
             .clone();
         for item in items {
             for peer in &item.peers {
+                if peer_is_this_controller_bluetooth(session.ble_identity, &peer.id)
+                    || peer_is_this_controller_wifi(&controller_ll, &peer.id)
+                {
+                    let _ = auto_fill_this_controller_peer_alias(session, &peer.id);
+                }
+                if peer_is_auto_gateway(peer) {
+                    let _ = auto_fill_auto_gateway_peer_alias(session, &peer.id);
+                }
                 if let Some(endpoint) = peer.endpoint.as_deref() {
                     if endpoint_matches_wifi_ll_keys(endpoint, &controller_ll) {
                         // Local-only label: do not publish to roster (sibling "this" would be wrong).
@@ -3009,7 +3005,7 @@ impl RemoteControlBackend {
                         Membership::FleetMember { supervisor_id }
                             if supervisor_id == entry.snapshot.id =>
                         {
-                            Some(interface_peer(&member.snapshot, member.name.as_deref()))
+                            Some(labeled_local_peer(&member.snapshot, member.name.as_deref()))
                         }
                         Membership::Independent | Membership::FleetMember { .. } => None,
                     })
@@ -3392,7 +3388,6 @@ struct ControllerSession {
     tcp_target_path: PathBuf,
     tcp_id: InterfaceId,
     controller_identity: ControllerIdentity,
-    operator_destination: DestinationHash,
     activity: Mutex<HashMap<String, InterfaceActivityStamp>>,
     peer_aliases: Mutex<HashMap<String, String>>,
     peer_aliases_path: PathBuf,
@@ -3722,15 +3717,15 @@ impl ControllerSession {
             }
         }
         persist_target_names(&sibling_wifi_ll_path, &sibling_wifi_ll_map);
-        // Drop sibling-synced "This Controller" leftovers; keep local __this_controller__ rows.
+        // Drop sibling-synced local-only leftovers; keep this-controller and auto-gateway rows.
         let before_scrub = peer_aliases_map.len();
         peer_aliases_map.retain(|peer_id, alias| {
             if peer_alias_value_is_syncable(Some(alias)) {
                 return true;
             }
-            peer_alias_links_map
-                .get(peer_id)
-                .is_some_and(|link| link == THIS_CONTROLLER_ALIAS_LINK)
+            peer_alias_links_map.get(peer_id).is_some_and(|link| {
+                link == THIS_CONTROLLER_ALIAS_LINK || link == AUTO_GATEWAY_ALIAS_LINK
+            })
         });
         if peer_aliases_map.len() != before_scrub {
             persist_target_names(&peer_aliases_path, &peer_aliases_map);
@@ -4113,7 +4108,6 @@ impl ControllerSession {
             tcp_target_path,
             tcp_id,
             controller_identity,
-            operator_destination: controller.endpoint().destination_hash(),
             activity: Mutex::new(HashMap::new()),
             peer_aliases,
             peer_aliases_path,
@@ -4975,9 +4969,11 @@ fn apply_roster_labels(session: &ControllerSession, labels: &[RosterLabel]) {
                         .lock()
                         .ok()
                         .and_then(|links| links.get(&label.key).cloned())
-                        .is_some_and(|link| link == THIS_CONTROLLER_ALIAS_LINK)
+                        .is_some_and(|link| {
+                            link == THIS_CONTROLLER_ALIAS_LINK || link == AUTO_GATEWAY_ALIAS_LINK
+                        })
                 {
-                    // Roster clear must not erase this install's local AutoWifi self-label.
+                    // Roster clear must not erase this install's local-only peer labels.
                 } else {
                     apply_map_label(
                         &session.peer_aliases,
@@ -5595,6 +5591,7 @@ fn local_interface_entry(
         .or_else(|| {
             name.map(str::trim)
                 .filter(|name| !name.is_empty())
+                .filter(|name| auto_wifi_gateway_ip(name).is_none())
                 .map(ToOwned::to_owned)
         })
         .unwrap_or_else(|| format!("{} {}", kind_name, short_id(&id)));
@@ -5869,6 +5866,30 @@ fn local_interface_config(
     }
 }
 
+fn labeled_local_peer(snapshot: &InterfaceSnapshot, name: Option<&str>) -> InterfacePeer {
+    let gateway_ip = name.and_then(auto_wifi_gateway_ip);
+    let endpoint = gateway_ip.as_deref().or(name);
+    let mut peer = interface_peer(snapshot, endpoint);
+    if let Some(ip) = gateway_ip {
+        peer.name = format!("TCP out : {ip}");
+        peer.endpoint = Some(ip);
+        peer.endpoint_label = Some(PeerPath::TcpOutbound.endpoint_label().to_string());
+    }
+    peer
+}
+
+/// Auto Wi-Fi names only its default-gateway TCP dial. The name is `auto-gateway` plus the IP.
+fn auto_wifi_gateway_ip(name: &str) -> Option<String> {
+    let ip = name
+        .trim()
+        .strip_prefix(personal_rns::interfaces::wifi_auto::AUTO_WIFI_GATEWAY_DIAL_NAME_PREFIX)?
+        .trim();
+    if ip.parse::<IpAddr>().is_err() {
+        return None;
+    }
+    Some(ip.to_string())
+}
+
 fn interface_peer(snapshot: &InterfaceSnapshot, endpoint: Option<&str>) -> InterfacePeer {
     described_interface_peer(
         snapshot.id,
@@ -6090,6 +6111,38 @@ fn appearance_prefix(id: InterfaceId) -> String {
 fn bluetooth_auto_title(identity: BleIdentity) -> String {
     let id = InterfaceId::from_channel_tag(InterfaceKind::BluetoothPeer, identity.as_bytes());
     format!("bluetooth-auto {}", appearance_prefix(id))
+}
+
+/// A managed node's BLE peer id is `BluetoothPeer` keyed by the peer's `BleIdentity`.
+/// That is the same id this Controller uses for its own radio, shown as `P` plus the
+/// first two hash bytes in the peer subtitle.
+fn peer_is_auto_gateway(peer: &InterfacePeer) -> bool {
+    peer.role == PeerPath::TcpOutbound.role() && peer.name.starts_with("TCP out : ")
+}
+
+/// A managed node's UDP peer id is `WifiPeer` keyed by the sender's 16-byte link-local
+/// address. That is the id behind `P` plus the first two hash bytes when the peer list
+/// has no address to show.
+fn peer_is_this_controller_wifi(link_locals: &HashSet<String>, peer_id: &str) -> bool {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return false;
+    }
+    link_locals.iter().any(|key| {
+        let Some(addr) = parse_ipv6_fact(key) else {
+            return false;
+        };
+        wifi_peer_id_from_link_local(addr).is_some_and(|ours| peer_id.eq_ignore_ascii_case(&ours))
+    })
+}
+
+fn peer_is_this_controller_bluetooth(identity: BleIdentity, peer_id: &str) -> bool {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return false;
+    }
+    let ours = InterfaceId::from_channel_tag(InterfaceKind::BluetoothPeer, identity.as_bytes());
+    peer_id.eq_ignore_ascii_case(&encode_hex(ours.as_bytes()))
 }
 
 fn generic_bluetooth_auto_title(name: &str) -> bool {
@@ -6417,7 +6470,7 @@ fn auto_fill_peer_alias(
     Ok(())
 }
 
-/// Name a wifi peer whose LL is this Controller's AutoWifi address. Local-only (no roster).
+/// Name a peer that is this Controller (its BLE identity, or its AutoWi-Fi address). Local-only.
 fn auto_fill_this_controller_peer_alias(
     session: &ControllerSession,
     peer_id: &str,
@@ -6451,6 +6504,44 @@ fn auto_fill_this_controller_peer_alias(
     peers.insert(peer_id.to_owned(), THIS_CONTROLLER_PEER_ALIAS.to_owned());
     persist_target_names(&session.peer_aliases_path, &peers);
     links.insert(peer_id.to_owned(), THIS_CONTROLLER_ALIAS_LINK.to_owned());
+    persist_target_names(&session.peer_alias_links_path, &links);
+    Ok(())
+}
+
+/// Name this install's Auto Wi-Fi dial to the default gateway. Local-only.
+fn auto_fill_auto_gateway_peer_alias(
+    session: &ControllerSession,
+    peer_id: &str,
+) -> Result<(), BackendError> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return Ok(());
+    }
+    let mut peers = session
+        .peer_aliases
+        .lock()
+        .expect("peer aliases mutex poisoned");
+    let mut links = session
+        .peer_alias_links
+        .lock()
+        .expect("peer alias links mutex poisoned");
+    let linked_here = links
+        .get(peer_id)
+        .is_some_and(|linked| linked == AUTO_GATEWAY_ALIAS_LINK);
+    let current = stored_alias(peers.get(peer_id).map(String::as_str));
+    if current.as_deref() == Some(AUTO_GATEWAY_PEER_ALIAS) {
+        if !linked_here {
+            links.insert(peer_id.to_owned(), AUTO_GATEWAY_ALIAS_LINK.to_owned());
+            persist_target_names(&session.peer_alias_links_path, &links);
+        }
+        return Ok(());
+    }
+    if current.is_some() && !linked_here {
+        return Ok(());
+    }
+    peers.insert(peer_id.to_owned(), AUTO_GATEWAY_PEER_ALIAS.to_owned());
+    persist_target_names(&session.peer_aliases_path, &peers);
+    links.insert(peer_id.to_owned(), AUTO_GATEWAY_ALIAS_LINK.to_owned());
     persist_target_names(&session.peer_alias_links_path, &links);
     Ok(())
 }
@@ -7473,17 +7564,18 @@ mod tests {
         format_target_announce, format_target_route, format_utc_millis,
         generic_bluetooth_auto_title, instance_identity_secret_path, interface_peer,
         interface_peer_from_wire, interface_power_from_connection, inventory_recovery_continues,
-        load_persisted_tcp_target, local_interface_config, local_interface_entry,
-        managed_targets_from_disk, monitor_remaining_at, normalize_stored_wifi_ll,
-        operator_interface_kind, operator_local_kind, parse_invitation_code, parse_target_names,
-        parse_tcp_dial_target, path_is_better_than, path_is_direct_ble, peer_label,
-        persist_tcp_target, radio_facts, remote_interface_entry, render_target_names,
-        resolve_controller_tcp_target, resolve_paired_target_hash, route_interface_kind,
-        should_forget_control_route, should_wait_for_control_announce, stored_alias, target_label,
-        BackendError, InterfaceEntry, InterfaceFact, InterfacePower, PeerHealth,
-        RemoteControlAnnounceWait, TargetPath, TargetStatus, CONTROLLER_IDENTITY_FILE,
-        DEFAULT_TCP_TARGET, INSTANCE_IDENTITY_FILE, MANAGER_ALIASES_FILE, TARGET_MONITOR_TTL,
-        THIS_CONTROLLER_PEER_ALIAS,
+        labeled_local_peer, load_persisted_tcp_target, local_interface_config,
+        local_interface_entry, managed_targets_from_disk, monitor_remaining_at,
+        normalize_stored_wifi_ll, operator_interface_kind, operator_local_kind,
+        parse_invitation_code, parse_target_names, parse_tcp_dial_target, path_is_better_than,
+        path_is_direct_ble, peer_is_auto_gateway, peer_is_this_controller_bluetooth,
+        peer_is_this_controller_wifi, peer_label, persist_tcp_target, radio_facts,
+        remote_interface_entry, render_target_names, resolve_controller_tcp_target,
+        resolve_paired_target_hash, route_interface_kind, should_forget_control_route,
+        should_wait_for_control_announce, stored_alias, target_label, BackendError, InterfaceEntry,
+        InterfaceFact, InterfacePower, PeerHealth, RemoteControlAnnounceWait, TargetPath,
+        TargetStatus, CONTROLLER_IDENTITY_FILE, DEFAULT_TCP_TARGET, INSTANCE_IDENTITY_FILE,
+        MANAGER_ALIASES_FILE, TARGET_MONITOR_TTL, THIS_CONTROLLER_PEER_ALIAS,
     };
     use personal_rns::identity::IdentityHash;
     use personal_rns::interfaces::bluetooth_auto::BleIdentity;
@@ -7749,6 +7841,26 @@ mod tests {
             bluetooth_auto_title(identity),
             format!("bluetooth-auto {}", &peer_label(seen)[2..])
         );
+    }
+
+    #[test]
+    fn ble_peer_matching_this_controller_identity_is_recognized() {
+        let identity = BleIdentity::new(*b"stable-identity!");
+        let seen = InterfaceId::from_channel_tag(InterfaceKind::BluetoothPeer, identity.as_bytes());
+        let hex = encode_hex(seen.as_bytes());
+        assert!(peer_is_this_controller_bluetooth(identity, &hex));
+        assert!(peer_is_this_controller_bluetooth(
+            identity,
+            &hex.to_ascii_uppercase()
+        ));
+        assert!(!peer_is_this_controller_bluetooth(
+            identity,
+            &encode_hex(
+                InterfaceId::from_channel_tag(InterfaceKind::BluetoothPeer, b"other-identity!!")
+                    .as_bytes()
+            )
+        ));
+        assert_eq!(&peer_label(seen)[2..], appearance_prefix(seen));
     }
 
     #[test]
@@ -8025,6 +8137,87 @@ mod tests {
         attach_our_side_of_the_link(&mut loopback, &[]);
         assert_eq!(loopback.local_endpoint_label.as_deref(), Some("From (us)"));
         assert_eq!(loopback.local_endpoint.as_deref(), Some("127.0.0.1"));
+    }
+
+    #[test]
+    fn auto_wifi_gateway_dial_is_subtitled_with_the_gateway_address() {
+        let id = InterfaceId::from_channel_tag(InterfaceKind::TcpClient, b"192.168.1.1:42699");
+        let gateway = labeled_local_peer(
+            &InterfaceSnapshot {
+                id,
+                mode: InterfaceMode::Full,
+                gravity: InterfaceGravity::ZERO,
+                connection: ConnectionState::Disconnected,
+                failure_reason: None,
+                rx_bytes: 0,
+                tx_bytes: 0,
+                transfer_rates: None,
+                destinations: 0,
+                links: 0,
+                transported_links: 0,
+                membership: Membership::FleetMember {
+                    supervisor_id: InterfaceId::from_channel_tag(InterfaceKind::AutoWifi, b"lan"),
+                },
+                radio: RadioIndication::NotRadio,
+                details: PeerDetails::NotApplicable,
+            },
+            Some("auto-gateway 192.168.1.1"),
+        );
+        let other = labeled_local_peer(
+            &InterfaceSnapshot {
+                id: InterfaceId::from_channel_tag(InterfaceKind::TcpClient, b"10.0.0.8:42699"),
+                mode: InterfaceMode::Full,
+                gravity: InterfaceGravity::ZERO,
+                connection: ConnectionState::Disconnected,
+                failure_reason: None,
+                rx_bytes: 0,
+                tx_bytes: 0,
+                transfer_rates: None,
+                destinations: 0,
+                links: 0,
+                transported_links: 0,
+                membership: Membership::FleetMember {
+                    supervisor_id: InterfaceId::from_channel_tag(InterfaceKind::AutoWifi, b"lan"),
+                },
+                radio: RadioIndication::NotRadio,
+                details: PeerDetails::NotApplicable,
+            },
+            None,
+        );
+        assert!(peer_is_auto_gateway(&gateway));
+        assert_eq!(gateway.name, "TCP out : 192.168.1.1");
+        assert_eq!(gateway.role, "TCP out");
+        assert_eq!(gateway.endpoint.as_deref(), Some("192.168.1.1"));
+        assert!(!peer_is_auto_gateway(&other));
+        assert!(other.name.starts_with("TCP out · P "));
+        let card = local_interface_entry(
+            &InterfaceSnapshot {
+                id: InterfaceId::from_channel_tag(InterfaceKind::AutoWifi, b"lan"),
+                mode: InterfaceMode::Full,
+                gravity: InterfaceGravity::ZERO,
+                connection: ConnectionState::Connected,
+                failure_reason: None,
+                rx_bytes: 0,
+                tx_bytes: 0,
+                transfer_rates: None,
+                destinations: 0,
+                links: 0,
+                transported_links: 0,
+                membership: Membership::Independent,
+                radio: RadioIndication::NotRadio,
+                details: PeerDetails::NotApplicable,
+            },
+            Some("auto-gateway 192.168.1.1"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+        );
+        assert!(card.name.starts_with("auto-wifi "));
+        assert!(!card.name.contains("auto-gateway"));
     }
 
     #[test]
@@ -8552,7 +8745,36 @@ mod tests {
             "fe80::aea7:4ff:fee1:4b3c",
             &keys
         ));
-        assert_eq!(THIS_CONTROLLER_PEER_ALIAS, "This Controller");
+        assert_eq!(THIS_CONTROLLER_PEER_ALIAS, "This controller");
+    }
+
+    #[test]
+    fn managed_node_udp_peer_id_matches_this_controller_link_local() {
+        let ll: Ipv6Addr = "fe80::494:446c:eb84:e48b".parse().unwrap();
+        let seen = InterfaceId::from_channel_tag(InterfaceKind::WifiPeer, &ll.octets());
+        let hex = encode_hex(seen.as_bytes());
+        let mut keys = HashSet::new();
+        keys.insert("fe80::494:446c:eb84:e48b".to_string());
+        assert!(peer_is_this_controller_wifi(&keys, &hex));
+        assert!(peer_is_this_controller_wifi(
+            &keys,
+            &hex.to_ascii_uppercase()
+        ));
+        let other = InterfaceId::from_channel_tag(
+            InterfaceKind::WifiPeer,
+            &Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1).octets(),
+        );
+        assert!(!peer_is_this_controller_wifi(
+            &keys,
+            &encode_hex(other.as_bytes())
+        ));
+        let mut scoped = ll.octets().to_vec();
+        scoped.extend_from_slice(&14u32.to_be_bytes());
+        let local_peer = InterfaceId::from_channel_tag(InterfaceKind::WifiPeer, &scoped);
+        assert!(!peer_is_this_controller_wifi(
+            &keys,
+            &encode_hex(local_peer.as_bytes())
+        ));
     }
 
     #[test]
