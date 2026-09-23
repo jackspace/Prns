@@ -524,7 +524,11 @@ pub async fn run(spawner: Spawner) -> ! {
     ))]
     let bluetooth = bluetooth::prepare(ble_identity, ble_supervisor_lane);
     let heartbeat = async move {
-        #[cfg(any(feature = "board-rak4631", feature = "board-rak10724", feature = "board-sensecap-solar-node"))]
+        #[cfg(any(
+            feature = "board-rak4631",
+            feature = "board-rak10724",
+            feature = "board-sensecap-solar-node"
+        ))]
         status_led.boot_splash().await;
         loop {
             status_led.illuminate();

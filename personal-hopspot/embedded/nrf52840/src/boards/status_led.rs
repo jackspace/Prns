@@ -72,7 +72,11 @@ impl StatusLed {
     }
 
     /// Two short flashes so a headless board shows it reached the runtime, then heartbeat.
-    #[cfg(any(feature = "board-rak4631", feature = "board-rak10724", feature = "board-sensecap-solar-node"))]
+    #[cfg(any(
+        feature = "board-rak4631",
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
+    ))]
     pub(crate) async fn boot_splash(&mut self) {
         use embassy_time::Timer;
         for _ in 0..2 {

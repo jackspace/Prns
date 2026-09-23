@@ -97,7 +97,10 @@ compile_error!("RAK4631 does not support S140 7.x");
 #[cfg(all(feature = "board-rak10724", feature = "softdevice-s140-v7"))]
 compile_error!("RAK10724 does not support S140 7.x");
 
-#[cfg(all(feature = "board-sensecap-solar-node", not(feature = "softdevice-s140-v7")))]
+#[cfg(all(
+    feature = "board-sensecap-solar-node",
+    not(feature = "softdevice-s140-v7")
+))]
 compile_error!("SenseCAP Solar Node requires softdevice-s140-v7; the XIAO nRF52840 bootloader ships S140 7.3.0");
 
 #[cfg(all(feature = "board-sensecap-solar-node", feature = "softdevice-s140-v6"))]
