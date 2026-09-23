@@ -15,6 +15,12 @@ use personal_rns::interfaces::{
     InterfaceGravity, InterfaceId, InterfaceMode, InterfaceSnapshot, InterfaceStatus, Membership,
 };
 use personal_rns::manifold::embassy::EmbassyInterfaceStatus;
+#[cfg(any(
+    feature = "board-rak4631",
+    feature = "board-rak10724",
+    feature = "board-sensecap-solar-node"
+))]
+use personal_rns::remote_control::RemoteControlFirmwareUpdateMode;
 #[cfg(feature = "board-t1000e")]
 use personal_rns::remote_control::RemoteControlGnssPower;
 use personal_rns::remote_control::{
@@ -73,6 +79,12 @@ enum ScheduledAction {
     DisableInterface(InterfaceId),
     ReconcileInterfaces,
     SleepSystem,
+    #[cfg(any(
+        feature = "board-rak4631",
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
+    ))]
+    EnterBootloaderOta,
 }
 
 struct ScheduledEffect {
@@ -134,6 +146,16 @@ pub(super) fn capabilities() -> RemoteControlCapabilities {
     #[cfg(feature = "board-t1000e")]
     {
         capabilities = capabilities.with_request(RemoteControlRequestKind::SetGnssPower);
+    }
+    // Boards on the Adafruit nRF52 bootloader with a resident S140: the bootloader serves Nordic
+    // legacy DFU over BLE once the application reboots into it.
+    #[cfg(any(
+        feature = "board-rak4631",
+        feature = "board-rak10724",
+        feature = "board-sensecap-solar-node"
+    ))]
+    {
+        capabilities = capabilities.with_request(RemoteControlRequestKind::EnterFirmwareUpdate);
     }
     capabilities
 }
@@ -390,6 +412,24 @@ async fn execute(
         RemoteControlHostCommand::SetNetworkTransport { transport } => {
             Ok(RemoteControlHostResponse::SetNetworkTransport(
                 hopspot::NETWORK_TRANSPORT.set(transport),
+            ))
+        }
+        #[cfg(any(
+            feature = "board-rak4631",
+            feature = "board-rak10724",
+            feature = "board-sensecap-solar-node"
+        ))]
+        RemoteControlHostCommand::EnterFirmwareUpdate { mode } => {
+            let RemoteControlFirmwareUpdateMode::BootloaderOta = mode;
+            // Reply first; the reset happens after the grace period so the controller sees
+            // `Scheduled` before the link drops. The bootloader erases the application on the first
+            // DFU command and has no OTA timeout, so only a granted, connected controller gets here.
+            schedule_effect(
+                context.scheduled_effect,
+                ScheduledAction::EnterBootloaderOta,
+            )?;
+            Ok(RemoteControlHostResponse::EnterFirmwareUpdate(
+                RemoteControlApplyOutcome::Scheduled,
             ))
         }
         RemoteControlHostCommand::SetSystemPower { power } => {
@@ -689,6 +729,14 @@ fn apply_scheduled(
         return;
     };
     match effect.action {
+        #[cfg(any(
+            feature = "board-rak4631",
+            feature = "board-rak10724",
+            feature = "board-sensecap-solar-node"
+        ))]
+        ScheduledAction::EnterBootloaderOta => {
+            super::super::bootloader_entry::request_ota();
+        }
         ScheduledAction::DisableInterface(id) => {
             if lora_status.id() == id {
                 lora_status.disable();

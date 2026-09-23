@@ -19,7 +19,7 @@ use crate::runtime::{
     RemoteControlInventoryInterfacePeers, RemoteControlInventoryInterfaces,
     RemoteControlReplaceInterfaceDiscoveryGroups, RemoteControlRevokeController,
     RemoteControlSetDisplayAutoOff, RemoteControlSetDisplayVisibility,
-    RemoteControlSetEspRadioMode, RemoteControlSetGnssPower, RemoteControlSetInterfaceGroup,
+    RemoteControlSetEspRadioMode, RemoteControlEnterFirmwareUpdate, RemoteControlSetGnssPower, RemoteControlSetInterfaceGroup,
     RemoteControlSetInterfaceLoRaProfile, RemoteControlSetInterfaceMode,
     RemoteControlSetInterfacePower, RemoteControlSetInterfaceWifiStation,
     RemoteControlSetNetworkTransport, RemoteControlSetStationUplink, RemoteControlSetSystemPower,
@@ -34,7 +34,7 @@ use prns_core::remote_control::{
     RemoteControlDescription, RemoteControlDiscoveryGroups,
     RemoteControlDiscoveryGroupsInventoryOutcome, RemoteControlDiscoveryGroupsReplaceOutcome,
     RemoteControlDisplayAutoOff, RemoteControlDisplayVisibility, RemoteControlEspRadioMode,
-    RemoteControlGnssPower, RemoteControlGroupOutcome, RemoteControlInterfaceConfigOutcome,
+    RemoteControlFirmwareUpdateMode, RemoteControlGnssPower, RemoteControlGroupOutcome, RemoteControlInterfaceConfigOutcome,
     RemoteControlInterfaceGroup, RemoteControlInterfaceInventory, RemoteControlInterfacePage,
     RemoteControlInterfacePeersOutcome, RemoteControlInterfacePower, RemoteControlLoRaOutcome,
     RemoteControlLoRaProfile, RemoteControlModeOutcome, RemoteControlNetworkTransport,
@@ -139,6 +139,12 @@ impl<
         RemoteControlSetGnssPower,
         power,
         RemoteControlGnssPower
+    );
+    remote_control_apply_method!(
+        enter_firmware_update,
+        RemoteControlEnterFirmwareUpdate,
+        mode,
+        RemoteControlFirmwareUpdateMode
     );
     remote_control_apply_method!(
         set_display_visibility,

@@ -434,6 +434,7 @@ fn protocol_discriminants_are_stable_typed_values() {
             RemoteControlRequestKind::ReplaceInterfaceDiscoveryGroups,
             RemoteControlRequestKind::DescribeNetworkTransport,
             RemoteControlRequestKind::SetNetworkTransport,
+            RemoteControlRequestKind::EnterFirmwareUpdate,
         ],
     );
     assert_eq!(
@@ -471,6 +472,7 @@ fn protocol_discriminants_are_stable_typed_values() {
             RemoteControlResponseKind::ReplaceInterfaceDiscoveryGroups,
             RemoteControlResponseKind::DescribeNetworkTransport,
             RemoteControlResponseKind::SetNetworkTransport,
+            RemoteControlResponseKind::EnterFirmwareUpdate,
             RemoteControlResponseKind::ProtocolError,
         ],
     );
@@ -604,6 +606,14 @@ fn protocol_discriminants_are_stable_typed_values() {
     assert_eq!(
         RemoteControlResponseKind::SetNetworkTransport.wire_value(),
         0x20
+    );
+    assert_eq!(
+        RemoteControlRequestKind::EnterFirmwareUpdate.wire_value(),
+        0x21
+    );
+    assert_eq!(
+        RemoteControlResponseKind::EnterFirmwareUpdate.wire_value(),
+        0x21
     );
     assert_eq!(RemoteControlResponseKind::ProtocolError.wire_value(), 0xFF,);
     assert_eq!(

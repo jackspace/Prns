@@ -21,16 +21,17 @@ use super::inventory::{
 use super::{
     RemoteControlApplyOutcome, RemoteControlControllerIdentity, RemoteControlControllerPage,
     RemoteControlDisplayAutoOff, RemoteControlDisplayVisibility, RemoteControlEspRadioMode,
-    RemoteControlGnssPower, RemoteControlInterfacePage, RemoteControlPeerPage,
-    RemoteControlStationUplink, RemoteControlSystemPower, RemoteControlWifiCredentialRevision,
-    RemoteControlWifiStageOutcome, RemoteControlWifiTransactionStatus,
+    RemoteControlFirmwareUpdateMode, RemoteControlGnssPower, RemoteControlInterfacePage,
+    RemoteControlPeerPage, RemoteControlStationUplink, RemoteControlSystemPower,
+    RemoteControlWifiCredentialRevision, RemoteControlWifiStageOutcome,
+    RemoteControlWifiTransactionStatus,
 };
 
 const MESSAGE_HEADER_ENCODED_LEN: usize = 2;
 const DESCRIPTION_COUNT_ENCODED_LEN: usize = 1;
 const PROTOCOL_ERROR_KIND_ENCODED_LEN: usize = 1;
 const PROTOCOL_ERROR_DETAIL_ENCODED_LEN: usize = 1;
-// V1 request kinds occupy the contiguous wire range 0x01..=0x20. Unknown values are rejected
+// V1 request kinds occupy the contiguous wire range 0x01..=0x21. Unknown values are rejected
 // before a request can enter this typed set, so five bytes represent the complete domain.
 const REQUEST_KIND_BITMAP_LEN: usize = 5;
 
@@ -89,6 +90,7 @@ prns_macros::iterable_enum! {
         ReplaceInterfaceDiscoveryGroups = 0x1E,
         DescribeNetworkTransport = 0x1F,
         SetNetworkTransport = 0x20,
+        EnterFirmwareUpdate = 0x21,
     }
 }
 
@@ -191,7 +193,8 @@ impl RemoteControlRequestKind {
             | Self::SetEspRadioMode
             | Self::ActivateWifiCredentials
             | Self::ConfirmWifiCredentials
-            | Self::CancelWifiCredentials => MESSAGE_HEADER_ENCODED_LEN.saturating_add(maximum(
+            | Self::CancelWifiCredentials
+            | Self::EnterFirmwareUpdate => MESSAGE_HEADER_ENCODED_LEN.saturating_add(maximum(
                 RemoteControlApplyOutcome::ENCODED_LEN,
                 RemoteControlProtocolError::MAX_ENCODED_BODY_LEN,
             )),
@@ -275,6 +278,7 @@ prns_macros::iterable_enum! {
         ReplaceInterfaceDiscoveryGroups = 0x1E,
         DescribeNetworkTransport = 0x1F,
         SetNetworkTransport = 0x20,
+        EnterFirmwareUpdate = 0x21,
         ProtocolError = 0xFF,
     }
 }
@@ -407,6 +411,9 @@ pub enum RemoteControlRequest {
     SetGnssPower {
         power: RemoteControlGnssPower,
     },
+    EnterFirmwareUpdate {
+        mode: RemoteControlFirmwareUpdateMode,
+    },
     SetDisplayVisibility {
         visibility: RemoteControlDisplayVisibility,
     },
@@ -485,6 +492,7 @@ impl RemoteControlRequest {
             Self::WakeRadios => RemoteControlRequestKind::WakeRadios,
             Self::SetSystemPower { .. } => RemoteControlRequestKind::SetSystemPower,
             Self::SetGnssPower { .. } => RemoteControlRequestKind::SetGnssPower,
+            Self::EnterFirmwareUpdate { .. } => RemoteControlRequestKind::EnterFirmwareUpdate,
             Self::SetDisplayVisibility { .. } => RemoteControlRequestKind::SetDisplayVisibility,
             Self::SetDisplayAutoOff { .. } => RemoteControlRequestKind::SetDisplayAutoOff,
             Self::SetStationUplink { .. } => RemoteControlRequestKind::SetStationUplink,
@@ -514,6 +522,7 @@ impl RemoteControlRequest {
             | Self::DescribeNetworkTransport => MESSAGE_HEADER_ENCODED_LEN,
             Self::SetSystemPower { .. }
             | Self::SetGnssPower { .. }
+            | Self::EnterFirmwareUpdate { .. }
             | Self::SetDisplayVisibility { .. }
             | Self::SetDisplayAutoOff { .. }
             | Self::SetEspRadioMode { .. }
@@ -602,6 +611,7 @@ impl RemoteControlRequest {
             RemoteControlRequestKind::WakeRadios if body.is_empty() => Ok(Self::WakeRadios),
             RemoteControlRequestKind::SetSystemPower => parse_set_system_power(body),
             RemoteControlRequestKind::SetGnssPower => parse_set_gnss_power(body),
+            RemoteControlRequestKind::EnterFirmwareUpdate => parse_enter_firmware_update(body),
             RemoteControlRequestKind::SetDisplayVisibility => parse_set_display_visibility(body),
             RemoteControlRequestKind::SetDisplayAutoOff => parse_set_display_auto_off(body),
             RemoteControlRequestKind::SetStationUplink => parse_set_station_uplink(body),
@@ -727,6 +737,7 @@ impl RemoteControlRequest {
             }
             Self::SetSystemPower { power } => write_single_byte(body, power.wire_value())?,
             Self::SetGnssPower { power } => write_single_byte(body, power.wire_value())?,
+            Self::EnterFirmwareUpdate { mode } => write_single_byte(body, mode.wire_value())?,
             Self::SetDisplayVisibility { visibility } => {
                 write_single_byte(body, visibility.wire_value())?;
             }
@@ -778,6 +789,15 @@ fn parse_set_gnss_power(
     let power = RemoteControlGnssPower::from_wire(value)
         .ok_or(RemoteControlRequestParseError::Malformed)?;
     Ok(RemoteControlRequest::SetGnssPower { power })
+}
+
+fn parse_enter_firmware_update(
+    body: &[u8],
+) -> Result<RemoteControlRequest, RemoteControlRequestParseError> {
+    let value = parse_single_byte(body)?;
+    let mode = RemoteControlFirmwareUpdateMode::from_wire(value)
+        .ok_or(RemoteControlRequestParseError::Malformed)?;
+    Ok(RemoteControlRequest::EnterFirmwareUpdate { mode })
 }
 
 fn parse_set_network_transport(
@@ -1595,6 +1615,7 @@ pub enum RemoteControlResponse {
     WakeRadios(RemoteControlSleepOutcome),
     SetSystemPower(RemoteControlApplyOutcome),
     SetGnssPower(RemoteControlApplyOutcome),
+    EnterFirmwareUpdate(RemoteControlApplyOutcome),
     SetDisplayVisibility(RemoteControlApplyOutcome),
     SetDisplayAutoOff(RemoteControlApplyOutcome),
     SetStationUplink(RemoteControlApplyOutcome),
@@ -1683,6 +1704,7 @@ impl RemoteControlResponse {
             Self::WakeRadios(_) => RemoteControlResponseKind::WakeRadios,
             Self::SetSystemPower(_) => RemoteControlResponseKind::SetSystemPower,
             Self::SetGnssPower(_) => RemoteControlResponseKind::SetGnssPower,
+            Self::EnterFirmwareUpdate(_) => RemoteControlResponseKind::EnterFirmwareUpdate,
             Self::SetDisplayVisibility(_) => RemoteControlResponseKind::SetDisplayVisibility,
             Self::SetDisplayAutoOff(_) => RemoteControlResponseKind::SetDisplayAutoOff,
             Self::SetStationUplink(_) => RemoteControlResponseKind::SetStationUplink,
@@ -1727,6 +1749,7 @@ impl RemoteControlResponse {
             Self::SleepRadios(_) | Self::WakeRadios(_) => RemoteControlSleepOutcome::ENCODED_LEN,
             Self::SetSystemPower(_)
             | Self::SetGnssPower(_)
+            | Self::EnterFirmwareUpdate(_)
             | Self::SetDisplayVisibility(_)
             | Self::SetDisplayAutoOff(_)
             | Self::SetStationUplink(_)
@@ -1828,6 +1851,9 @@ impl RemoteControlResponse {
             RemoteControlResponseKind::SetGnssPower => {
                 parse_apply_outcome(body).map(Self::SetGnssPower)
             }
+            RemoteControlResponseKind::EnterFirmwareUpdate => {
+                parse_apply_outcome(body).map(Self::EnterFirmwareUpdate)
+            }
             RemoteControlResponseKind::SetDisplayVisibility => {
                 parse_apply_outcome(body).map(Self::SetDisplayVisibility)
             }
@@ -1909,6 +1935,7 @@ impl RemoteControlResponse {
             }
             Self::SetSystemPower(outcome)
             | Self::SetGnssPower(outcome)
+            | Self::EnterFirmwareUpdate(outcome)
             | Self::SetDisplayVisibility(outcome)
             | Self::SetDisplayAutoOff(outcome)
             | Self::SetStationUplink(outcome)
@@ -2638,6 +2665,7 @@ mod kani_proofs {
         parse_request_family::<{ RemoteControlRequest::MAX_ENCODED_LEN + 1 }>(&[
             RemoteControlRequestKind::SetSystemPower,
             RemoteControlRequestKind::SetGnssPower,
+            RemoteControlRequestKind::EnterFirmwareUpdate,
             RemoteControlRequestKind::SetDisplayVisibility,
             RemoteControlRequestKind::SetDisplayAutoOff,
             RemoteControlRequestKind::SetStationUplink,
@@ -2690,6 +2718,7 @@ mod kani_proofs {
         parse_response_family::<{ RemoteControlResponse::MAX_ENCODED_LEN + 1 }>(&[
             RemoteControlResponseKind::SetSystemPower,
             RemoteControlResponseKind::SetGnssPower,
+            RemoteControlResponseKind::EnterFirmwareUpdate,
             RemoteControlResponseKind::SetDisplayVisibility,
             RemoteControlResponseKind::SetDisplayAutoOff,
             RemoteControlResponseKind::SetStationUplink,

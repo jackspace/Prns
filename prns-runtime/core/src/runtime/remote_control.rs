@@ -13,8 +13,9 @@ use crate::remote_control::{
     RemoteControlDescriptionError, RemoteControlDiscoveryGroups,
     RemoteControlDiscoveryGroupsInventoryOutcome, RemoteControlDiscoveryGroupsReplaceOutcome,
     RemoteControlDisplayAutoOff, RemoteControlDisplayVisibility, RemoteControlEspRadioMode,
-    RemoteControlGnssPower, RemoteControlGroupOutcome, RemoteControlInterfaceConfigOutcome,
-    RemoteControlInterfaceGroup, RemoteControlInterfaceInventory, RemoteControlInterfacePage,
+    RemoteControlFirmwareUpdateMode, RemoteControlGnssPower, RemoteControlGroupOutcome,
+    RemoteControlInterfaceConfigOutcome, RemoteControlInterfaceGroup,
+    RemoteControlInterfaceInventory, RemoteControlInterfacePage,
     RemoteControlInterfacePeersOutcome, RemoteControlInterfacePower, RemoteControlLoRaOutcome,
     RemoteControlLoRaProfile, RemoteControlMessageWriteError, RemoteControlModeOutcome,
     RemoteControlNetworkTransport, RemoteControlNetworkTransportOutcome, RemoteControlPeerPage,
@@ -214,6 +215,9 @@ pub enum RemoteControlHostCommand {
     SetGnssPower {
         power: RemoteControlGnssPower,
     },
+    EnterFirmwareUpdate {
+        mode: RemoteControlFirmwareUpdateMode,
+    },
     SetDisplayVisibility {
         visibility: RemoteControlDisplayVisibility,
     },
@@ -291,6 +295,7 @@ impl RemoteControlHostCommand {
             Self::WakeRadios => RemoteControlRequestKind::WakeRadios,
             Self::SetSystemPower { .. } => RemoteControlRequestKind::SetSystemPower,
             Self::SetGnssPower { .. } => RemoteControlRequestKind::SetGnssPower,
+            Self::EnterFirmwareUpdate { .. } => RemoteControlRequestKind::EnterFirmwareUpdate,
             Self::SetDisplayVisibility { .. } => RemoteControlRequestKind::SetDisplayVisibility,
             Self::SetDisplayAutoOff { .. } => RemoteControlRequestKind::SetDisplayAutoOff,
             #[cfg(feature = "remote-control-wifi-host")]
@@ -333,6 +338,7 @@ pub enum RemoteControlHostResponse {
     WakeRadios(RemoteControlSleepOutcome),
     SetSystemPower(RemoteControlApplyOutcome),
     SetGnssPower(RemoteControlApplyOutcome),
+    EnterFirmwareUpdate(RemoteControlApplyOutcome),
     SetDisplayVisibility(RemoteControlApplyOutcome),
     SetDisplayAutoOff(RemoteControlApplyOutcome),
     SetStationUplink(RemoteControlApplyOutcome),
@@ -370,6 +376,7 @@ impl RemoteControlHostResponse {
             Self::WakeRadios(_) => RemoteControlRequestKind::WakeRadios,
             Self::SetSystemPower(_) => RemoteControlRequestKind::SetSystemPower,
             Self::SetGnssPower(_) => RemoteControlRequestKind::SetGnssPower,
+            Self::EnterFirmwareUpdate(_) => RemoteControlRequestKind::EnterFirmwareUpdate,
             Self::SetDisplayVisibility(_) => RemoteControlRequestKind::SetDisplayVisibility,
             Self::SetDisplayAutoOff(_) => RemoteControlRequestKind::SetDisplayAutoOff,
             Self::SetStationUplink(_) => RemoteControlRequestKind::SetStationUplink,
@@ -416,6 +423,9 @@ impl RemoteControlHostResponse {
             Self::WakeRadios(outcome) => RemoteControlResponse::WakeRadios(outcome),
             Self::SetSystemPower(outcome) => RemoteControlResponse::SetSystemPower(outcome),
             Self::SetGnssPower(outcome) => RemoteControlResponse::SetGnssPower(outcome),
+            Self::EnterFirmwareUpdate(outcome) => {
+                RemoteControlResponse::EnterFirmwareUpdate(outcome)
+            }
             Self::SetDisplayVisibility(outcome) => {
                 RemoteControlResponse::SetDisplayVisibility(outcome)
             }
@@ -1135,6 +1145,12 @@ remote_control_apply_exchange!(
     RemoteControlGnssPower
 );
 remote_control_apply_exchange!(
+    RemoteControlEnterFirmwareUpdate,
+    EnterFirmwareUpdate,
+    mode,
+    RemoteControlFirmwareUpdateMode
+);
+remote_control_apply_exchange!(
     RemoteControlSetDisplayVisibility,
     SetDisplayVisibility,
     visibility,
@@ -1488,6 +1504,15 @@ impl RemoteControlRequestEndpoint {
                 require_available(available_requests, RemoteControlRequestKind::SetGnssPower)?;
                 Ok(AdmittedRemoteControlOperation::Host(
                     RemoteControlHostCommand::SetGnssPower { power },
+                ))
+            }
+            Ok(RemoteControlRequest::EnterFirmwareUpdate { mode }) => {
+                require_available(
+                    available_requests,
+                    RemoteControlRequestKind::EnterFirmwareUpdate,
+                )?;
+                Ok(AdmittedRemoteControlOperation::Host(
+                    RemoteControlHostCommand::EnterFirmwareUpdate { mode },
                 ))
             }
             Ok(RemoteControlRequest::SetDisplayVisibility { visibility }) => {

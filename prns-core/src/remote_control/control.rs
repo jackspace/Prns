@@ -35,6 +35,15 @@ desired_state!(RemoteControlGnssPower {
     On = 0x01,
 });
 
+// Which firmware-update entry a node is asked to take. `BootloaderOta` reboots into the resident
+// bootloader's over-the-air DFU mode (Adafruit nRF52: `DFU_MAGIC_OTA_RESET`, Nordic legacy DFU over
+// BLE). The node replies `Scheduled` first and resets after the response grace period. The
+// bootloader erases the application before accepting an image and has no timeout in OTA mode, so a
+// controller must already be connected and holding the package before it sends this.
+desired_state!(RemoteControlFirmwareUpdateMode {
+    BootloaderOta = 0x01,
+});
+
 desired_state!(RemoteControlDisplayVisibility {
     Hidden = 0x00,
     Visible = 0x01,
