@@ -1,7 +1,7 @@
 """Nordic LEGACY DFU (SDK 11 style, what Adafruit_nRF52_Bootloader speaks) over BLE, with bleak.
 
 Usage:
-  python nrf52-ble-legacy-dfu.py <package.zip> [--address AA:BB:CC:DD:EE:FF] [--prn 1]
+  python nrf52-ble-legacy-dfu.py <package.zip> [--address AA:BB:CC:DD:EE:FF] [--prn 8]
   python nrf52-ble-legacy-dfu.py --finish --address AA:BB:CC:DD:EE:FF
   python nrf52-ble-legacy-dfu.py --reset --address AA:BB:CC:DD:EE:FF
 
@@ -12,9 +12,15 @@ PRN request, RECEIVE_FIRMWARE_IMAGE with 20-byte packets, VALIDATE, ACTIVATE_AND
 --reset sends SYS_RESET, for a bootloader left in OTA mode by an aborted transfer (it has no
 timeout of its own).
 
-Only measured from Windows so far: a receipt on every packet (--prn 1) carried a 603 KB image in
-about 62 minutes, while --prn 10 died at 16 KB. START_DFU erases the application bank before it
-answers, which is why its response wait is 150 s.
+Measured from one Windows host (MediaTek MT7921) against the stock XIAO bootloader 0.9.2, 603 KB
+image: --prn 1 took about 62 minutes, --prn 4 about 16, --prn 8 about 8; --prn 10 failed both times
+tried (10 03 06, once at 16 KB, once on the first packets). Phones pace per connection interval and
+may cope with more; not measured.
+
+START_DFU erases before it answers, which is why its response wait is 150 s. It erases only the
+pages the new image needs (a CURRENT.UF2 readback after a failed transfer showed the erase ending
+exactly at the image's size), so pages beyond the image, such as the remote-control identity at
+0xE9000 on the Solar Node, survive. The application itself is gone until a transfer completes.
 """
 import argparse, asyncio, json, struct, sys, time, zipfile
 from bleak import BleakClient, BleakScanner
@@ -71,7 +77,7 @@ async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("package", nargs="?")
     ap.add_argument("--address", default=None)
-    ap.add_argument("--prn", type=int, default=1)
+    ap.add_argument("--prn", type=int, default=8)
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--finish", action="store_true", help="VALIDATE then ACTIVATE_AND_RESET only")
     mode.add_argument("--reset", action="store_true", help="SYS_RESET a bootloader stuck in OTA mode")
